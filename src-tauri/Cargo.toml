@@ -22,7 +22,7 @@ tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json"] }
-keyring = "3"
+keyring = { version = "3", features = ["windows-native"] }
 whatlang = "0.16"
 regex = "1"
 log = "0.4"
