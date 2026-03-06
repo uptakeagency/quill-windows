@@ -6,7 +6,7 @@
 #[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_C, VK_CONTROL,
-    VK_V,
+    VK_LWIN, VK_MENU, VK_SHIFT, VK_V,
 };
 
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -83,47 +83,112 @@ fn simulate_ctrl_v() {
     }
 }
 
+/// Release all modifier keys (Ctrl, Alt, Shift, Win).
+///
+/// Must be called before Ctrl+C simulation because the hotkey
+/// Ctrl+Alt+Q leaves Alt held down. Without releasing it, SendInput
+/// produces Ctrl+Alt+C instead of Ctrl+C.
+#[cfg(windows)]
+fn release_modifiers() {
+    let inputs = [
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VK_CONTROL,
+                    dwFlags: KEYEVENTF_KEYUP,
+                    ..Default::default()
+                },
+            },
+        },
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VK_MENU,
+                    dwFlags: KEYEVENTF_KEYUP,
+                    ..Default::default()
+                },
+            },
+        },
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VK_SHIFT,
+                    dwFlags: KEYEVENTF_KEYUP,
+                    ..Default::default()
+                },
+            },
+        },
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VK_LWIN,
+                    dwFlags: KEYEVENTF_KEYUP,
+                    ..Default::default()
+                },
+            },
+        },
+    ];
+    unsafe {
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
 /// Delay duration after simulating keystrokes (ms).
-const KEYSTROKE_DELAY_MS: u64 = 50;
+const KEYSTROKE_DELAY_MS: u64 = 100;
 
 /// Capture the currently selected text via clipboard.
 ///
-/// 1. Save current clipboard contents
-/// 2. Simulate Ctrl+C via SendInput
-/// 3. Sleep 50ms
-/// 4. Read clipboard
-/// 5. Restore original clipboard
-/// 6. Return captured text (empty string if clipboard unchanged)
+/// 1. Release modifier keys (Ctrl+Alt from hotkey still held)
+/// 2. Save current clipboard contents
+/// 3. Simulate Ctrl+C via SendInput
+/// 4. Sleep for target app to process copy
+/// 5. Read clipboard
+/// 6. Restore original clipboard
+/// 7. Return captured text (empty string if clipboard unchanged)
 #[cfg(windows)]
 pub async fn capture_selected_text(app: &tauri::AppHandle) -> Result<String, String> {
-    // 1. Save current clipboard contents
+    // 1. Release modifier keys left over from hotkey (Ctrl+Alt+Q)
+    release_modifiers();
+
+    // Brief delay for modifier release to take effect
+    tauri::async_runtime::spawn_blocking(|| {
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    })
+    .await
+    .map_err(|e| format!("Sleep task failed: {}", e))?;
+
+    // 2. Save current clipboard contents
     let original = app
         .clipboard()
         .read_text()
         .unwrap_or_default();
 
-    // 2. Simulate Ctrl+C
+    // 3. Simulate Ctrl+C
     simulate_ctrl_c();
 
-    // 3. Wait for the target app to process the copy
+    // 4. Wait for the target app to process the copy
     tauri::async_runtime::spawn_blocking(|| {
         std::thread::sleep(std::time::Duration::from_millis(KEYSTROKE_DELAY_MS));
     })
     .await
     .map_err(|e| format!("Sleep task failed: {}", e))?;
 
-    // 4. Read clipboard
+    // 5. Read clipboard
     let captured = app
         .clipboard()
         .read_text()
         .map_err(|e| format!("Failed to read clipboard: {}", e))?;
 
-    // 5. Restore original clipboard
+    // 6. Restore original clipboard
     if !original.is_empty() {
         let _ = app.clipboard().write_text(&original);
     }
 
-    // 6. Return captured text (empty if unchanged)
+    // 7. Return captured text (empty if unchanged)
     if captured == original {
         Ok(String::new())
     } else {
@@ -234,8 +299,8 @@ mod tests {
     }
 
     #[test]
-    fn keystroke_delay_is_50ms() {
-        assert_eq!(KEYSTROKE_DELAY_MS, 50);
+    fn keystroke_delay_is_100ms() {
+        assert_eq!(KEYSTROKE_DELAY_MS, 100);
     }
 
     // =========================================================================
