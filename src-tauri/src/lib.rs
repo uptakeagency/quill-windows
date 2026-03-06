@@ -1,4 +1,5 @@
 mod models;
+mod ai;
 
 pub fn run() {
     tauri::Builder::default()
