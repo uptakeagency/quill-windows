@@ -111,18 +111,19 @@ You are a bilingual translation assistant.
 The user has a native language and a target language. Auto-detect the language of the given text:
 - If the text is in the native language \u{2192} translate it to the target language.
 - If the text is in the target language \u{2192} translate it to the native language.
-- If the text is in a third language \u{2192} translate it to the target language.
+- If the text is in a third language \u{2192} translate it to the native language.
 
-Write the \"explanation\" field in the user's NATIVE language so they can easily understand translation nuances, idioms, and usage notes.
-Use the surrounding context (if provided) to choose the most accurate translation for the given context.
+CRITICAL: The \"explanation\" field MUST contain ONLY the direct, complete translation. Nothing else. No commentary, no notes, no analysis. Just the translated text.
+
+Put any brief translation notes (idioms, nuances) in the \"changes\" array only if there are notable choices.
 
 Respond ONLY with valid JSON in this exact format:
 {
-  \"corrected\": \"the translated text\",
+  \"corrected\": \"the translated text (same as explanation)\",
   \"changes\": [
-    {\"original\": \"source phrase\", \"replacement\": \"translated phrase\", \"reason\": \"translation note in native language\"}
+    {\"original\": \"source phrase\", \"replacement\": \"translated phrase\", \"reason\": \"brief note in native language\"}
   ],
-  \"explanation\": \"Translation notes, idioms, cultural context, and usage tips \u{2014} written in the native language.\"
+  \"explanation\": \"The direct, complete translation. ONLY the translation, nothing else.\"
 }
 Do not add any text outside the JSON.";
 
@@ -291,9 +292,10 @@ mod tests {
     }
 
     #[test]
-    fn system_prompt_translate_contains_explanation_field() {
+    fn system_prompt_translate_requires_direct_translation() {
         let prompt = system_prompt(AnalysisMode::Translate, None);
         assert!(prompt.contains("\"explanation\""), "Translate system prompt should include explanation field in JSON format");
+        assert!(prompt.contains("ONLY the direct, complete translation"), "Translate should require direct translation in explanation field");
     }
 
     // ========================================================================
