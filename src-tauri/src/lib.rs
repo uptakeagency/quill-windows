@@ -1,5 +1,6 @@
 mod models;
 mod ai;
+mod clipboard;
 mod keyring_manager;
 
 pub fn run() {
