@@ -1,0 +1,12 @@
+{
+  "identifier": "settings-capabilities",
+  "description": "Capabilities for the settings window",
+  "windows": ["settings"],
+  "permissions": [
+    "core:default",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-delete",
+    "store:allow-keys"
+  ]
+}

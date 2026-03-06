@@ -1,7 +1,7 @@
 {
-  "identifier": "default",
-  "description": "Default capabilities",
-  "windows": ["*"],
+  "identifier": "panel-capabilities",
+  "description": "Capabilities for the floating panel window",
+  "windows": ["panel"],
   "permissions": [
     "core:default",
     "global-shortcut:allow-register",
@@ -9,8 +9,6 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "store:allow-get",
-    "store:allow-set",
-    "store:allow-delete",
-    "store:allow-keys"
+    "store:allow-set"
   ]
 }
