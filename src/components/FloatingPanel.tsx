@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useDrillDown } from '../hooks/useDrillDown';
 import ModePicker from './ModePicker';
@@ -63,7 +63,7 @@ export default function FloatingPanel() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        getCurrentWindow().hide();
+        invoke('hide_panel_cmd');
       }
     }
     window.addEventListener('keydown', handleKeyDown);
@@ -103,11 +103,10 @@ export default function FloatingPanel() {
 
   const handleApply = async (text: string) => {
     await applyText(text);
-    await getCurrentWindow().hide();
   };
 
   const handleDismiss = async () => {
-    await getCurrentWindow().hide();
+    await invoke('hide_panel_cmd');
   };
 
   // Determine what content to show

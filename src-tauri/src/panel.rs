@@ -11,7 +11,8 @@ use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORIN
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE,
-    HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    HWND_TOPMOST, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use tauri::Manager;
@@ -90,13 +91,31 @@ pub fn show_panel_near_cursor(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Hide the panel window.
+/// Hide the panel window via Win32 SetWindowPos.
+///
+/// We must use SetWindowPos (matching how we show it) because Tauri's
+/// internal visibility tracking doesn't know the panel was shown via
+/// Win32 SWP_SHOWWINDOW, so `panel.hide()` is a no-op.
 #[cfg(windows)]
 pub fn hide_panel(app: &tauri::AppHandle) -> Result<(), String> {
     let panel = app
         .get_webview_window("panel")
         .ok_or("Panel window not found")?;
-    panel.hide().map_err(|e| e.to_string())?;
+    let hwnd = panel.hwnd().map_err(|e| e.to_string())?;
+
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_HIDEWINDOW | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+        )
+        .map_err(|e| format!("SetWindowPos hide failed: {}", e))?;
+    }
+
     Ok(())
 }
 
