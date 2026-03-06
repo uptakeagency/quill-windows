@@ -6,7 +6,7 @@ use super::analysis::{Alternative, ResourceLink};
 
 // --- ExplanationLevel ---
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ExplanationLevel {
     Eli5,
@@ -101,9 +101,11 @@ impl TechDictionaryState {
         self.stack.push(explanation);
     }
 
-    pub fn pop(&mut self) {
+    pub fn pop(&mut self) -> Option<TechExplanation> {
         if self.stack.len() > 1 {
-            self.stack.pop();
+            self.stack.pop()
+        } else {
+            None
         }
     }
 
@@ -253,6 +255,16 @@ mod tests {
 
         state.pop();
         assert_eq!(state.current().unwrap().term, "Rust");
+    }
+
+    #[test]
+    fn pop_returns_popped_item() {
+        let mut state = TechDictionaryState::new();
+        state.push(make_explanation("A", ExplanationLevel::Eli5));
+        state.push(make_explanation("B", ExplanationLevel::Eli15));
+        let popped = state.pop();
+        assert!(popped.is_some());
+        assert_eq!(popped.unwrap().term, "B");
     }
 
     #[test]

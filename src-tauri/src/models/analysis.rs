@@ -8,12 +8,14 @@ pub struct AnalysisResult {
     pub mode: AnalysisMode,
     pub original: String,
     pub corrected: String,
+    #[serde(default)]
     pub changes: Vec<TextChange>,
     pub explanation: Option<String>,
     pub tldr: Option<String>,
     pub resources: Option<Vec<ResourceLink>>,
     pub alternatives: Option<Vec<Alternative>>,
-    pub vocabulary: Option<Vec<VocabularyCard>>,
+    #[serde(default)]
+    pub vocabulary: Vec<VocabularyCard>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +33,7 @@ pub struct ResourceLink {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VocabularyCard {
-    pub original: String,
+    pub word: String,
     pub suggestion: String,
     pub definition: String,
     pub example: String,
@@ -75,7 +77,7 @@ mod tests {
             tldr: None,
             resources: None,
             alternatives: None,
-            vocabulary: None,
+            vocabulary: vec![],
         };
 
         let json = serde_json::to_value(&result).unwrap();
@@ -87,7 +89,7 @@ mod tests {
         assert!(json["tldr"].is_null());
         assert!(json["resources"].is_null());
         assert!(json["alternatives"].is_null());
-        assert!(json["vocabulary"].is_null());
+        assert_eq!(json["vocabulary"], serde_json::json!([]));
     }
 
     #[test]
@@ -106,7 +108,7 @@ mod tests {
         assert!(result.tldr.is_none());
         assert!(result.resources.is_none());
         assert!(result.alternatives.is_none());
-        assert!(result.vocabulary.is_none());
+        assert!(result.vocabulary.is_empty());
     }
 
     #[test]
@@ -159,7 +161,7 @@ mod tests {
     #[test]
     fn vocabulary_card_round_trip() {
         let card = VocabularyCard {
-            original: "big".to_string(),
+            word: "big".to_string(),
             suggestion: "substantial".to_string(),
             definition: "Of considerable size".to_string(),
             example: "A substantial improvement".to_string(),
