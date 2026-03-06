@@ -1,9 +1,23 @@
+import { useState, useEffect } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import FloatingPanel from './components/FloatingPanel';
-// import Settings from './components/Settings'; // Task 14
+import Settings from './components/Settings';
 
 function App() {
-  // For now, just render FloatingPanel
-  // Task 14 will add Settings routing based on window label
+  const [windowLabel, setWindowLabel] = useState<string>('');
+
+  useEffect(() => {
+    const label = getCurrentWindow().label;
+    setWindowLabel(label);
+  }, []);
+
+  // Wait until label is resolved to avoid flash
+  if (!windowLabel) return null;
+
+  if (windowLabel === 'settings') {
+    return <Settings />;
+  }
+
   return <FloatingPanel />;
 }
 
