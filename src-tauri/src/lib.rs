@@ -339,6 +339,15 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(app_state::AppState::default())
+        .on_window_event(|window, event| {
+            // Intercept close on settings window: hide instead of destroy
+            if window.label() == "settings" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
 
