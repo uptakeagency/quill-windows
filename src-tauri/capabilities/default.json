@@ -4,6 +4,7 @@
   "windows": ["panel"],
   "permissions": [
     "core:default",
+    "core:window:allow-hide",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "clipboard-manager:allow-read-text",
