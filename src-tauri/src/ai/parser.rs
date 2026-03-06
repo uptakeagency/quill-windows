@@ -73,6 +73,14 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
         final_result.tldr = Some(normalize_escapes(tldr));
     }
 
+    // Mode-specific field filtering
+    if final_result.mode != AnalysisMode::Improve {
+        final_result.vocabulary = vec![];
+    }
+    if final_result.mode != AnalysisMode::TechExplain {
+        final_result.alternatives = None;
+    }
+
     final_result
 }
 
@@ -952,5 +960,35 @@ Let me know if you need anything else!"#;
         let alts = result.alternatives.unwrap();
         assert_eq!(alts[0].pros.len(), 2);
         assert_eq!(alts[0].cons.len(), 2);
+    }
+
+    // =========================================================================
+    // Mode-specific field filtering tests
+    // =========================================================================
+
+    #[test]
+    fn parse_strips_vocabulary_for_non_improve_mode() {
+        let json = r#"{
+            "corrected": "async/await",
+            "changes": [],
+            "explanation": "Async/await is a pattern",
+            "vocabulary": [{"word": "async", "suggestion": "asynchronous", "definition": "Non-blocking", "example": "async fn", "level": "B2"}]
+        }"#;
+
+        let result = parse_response(json, AnalysisMode::TechExplain, "async/await");
+        assert!(result.vocabulary.is_empty(), "vocabulary should be empty for TechExplain mode");
+    }
+
+    #[test]
+    fn parse_strips_alternatives_for_non_tech_explain_mode() {
+        let json = r#"{
+            "corrected": "Hello world",
+            "changes": [{"original": "wrold", "replacement": "world", "reason": "Typo"}],
+            "explanation": "Fixed a typo",
+            "alternatives": [{"name": "Alt1", "description": "Desc", "pros": ["Fast"], "cons": ["Complex"]}]
+        }"#;
+
+        let result = parse_response(json, AnalysisMode::Improve, "Hello wrold");
+        assert!(result.alternatives.is_none(), "alternatives should be None for Improve mode");
     }
 }
