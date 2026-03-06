@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useDrillDown } from '../hooks/useDrillDown';
 import ModePicker from './ModePicker';
@@ -8,16 +8,16 @@ import Breadcrumb from './Breadcrumb';
 import MarkdownView from './MarkdownView';
 import SuggestionView from './SuggestionView';
 import VocabularyCards from './VocabularyCard';
-import type { AnalysisMode, ExplanationLevel, AnalysisResultPayload, TechExplanation } from '../lib/types';
+import type { AnalysisMode, ExplanationLevel, TechExplanation } from '../lib/types';
 
 export default function FloatingPanel() {
   const {
     isAnalyzing,
     result,
     error,
+    capturedText,
     analyze,
     applyText,
-    hidePanel,
     changeMode,
     changeLevel,
   } = useAnalysis();
@@ -25,68 +25,95 @@ export default function FloatingPanel() {
   const drillDown = useDrillDown();
 
   const [mode, setMode] = useState<AnalysisMode>('techExplain');
-  const [level, setLevel] = useState<ExplanationLevel>('eli5');
+  const [level, setLevel] = useState<ExplanationLevel>('eli15');
 
-  // Listen for analysis results to push onto drill-down stack (techExplain mode)
+  // Refs for stable access in effects
+  const levelRef = useRef(level);
+  levelRef.current = level;
+  const resultActionRef = useRef<'push' | 'replace'>('push');
+
+  // Reset drill-down stack on new text capture (new hotkey press)
   useEffect(() => {
-    const unlisten = listen<AnalysisResultPayload>('analysis-result', (event) => {
-      const r = event.payload.result;
-      if (r.mode === 'techExplain' && r.explanation) {
-        const explanation: TechExplanation = {
-          term: r.original,
-          level,
-          explanation: r.explanation,
-          tldr: r.tldr,
-          resources: r.resources,
-          alternatives: r.alternatives,
-        };
+    if (capturedText) {
+      drillDown.reset();
+    }
+  }, [capturedText, drillDown.reset]);
+
+  // Sync result to drill-down stack (handles both hotkey and frontend-initiated analyses)
+  useEffect(() => {
+    if (result && result.mode === 'techExplain' && result.explanation) {
+      const explanation: TechExplanation = {
+        term: result.original,
+        level: levelRef.current,
+        explanation: result.explanation,
+        tldr: result.tldr,
+        resources: result.resources,
+        alternatives: result.alternatives,
+      };
+      if (resultActionRef.current === 'replace') {
+        drillDown.replaceTop(explanation);
+      } else {
         drillDown.push(explanation);
       }
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [level, drillDown.push]);
+      resultActionRef.current = 'push';
+    }
+  }, [result, drillDown.push, drillDown.replaceTop]);
 
   // ESC key to dismiss
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        hidePanel();
+        getCurrentWindow().hide();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hidePanel]);
+  }, []);
 
   const handleModeChange = (newMode: AnalysisMode) => {
     setMode(newMode);
     changeMode(newMode);
     drillDown.reset();
+    // Re-analyze current text in the new mode
+    if (capturedText) {
+      resultActionRef.current = 'push';
+      if (newMode === 'techExplain') {
+        analyze(capturedText, newMode, levelRef.current);
+      } else {
+        analyze(capturedText, newMode);
+      }
+    }
   };
 
   const handleLevelChange = (newLevel: ExplanationLevel) => {
     setLevel(newLevel);
     changeLevel(newLevel);
+    // Re-analyze current term with the new level
+    const term = drillDown.current?.term ?? capturedText;
+    if (term && mode === 'techExplain') {
+      resultActionRef.current = 'replace';
+      analyze(term, 'techExplain', newLevel);
+    }
   };
 
-  // Keep stable ref to current level for term click handler
-  const levelRef = useRef(level);
-  levelRef.current = level;
-
   const handleTermClick = (term: string) => {
+    resultActionRef.current = 'push';
     analyze(term, 'techExplain', levelRef.current);
   };
 
   const handleApply = async (text: string) => {
     await applyText(text);
-    await hidePanel();
+    await getCurrentWindow().hide();
+  };
+
+  const handleDismiss = async () => {
+    await getCurrentWindow().hide();
   };
 
   // Determine what content to show
   const isTechMode = mode === 'techExplain';
   const currentExplanation = drillDown.current;
+  const displayTerm = currentExplanation?.term ?? capturedText;
   const tldr = currentExplanation?.tldr ?? result?.tldr;
 
   return (
@@ -95,6 +122,13 @@ export default function FloatingPanel() {
       <div className="px-3 pt-3 pb-2">
         <ModePicker mode={mode} onModeChange={handleModeChange} />
       </div>
+
+      {/* Selected term/text header */}
+      {displayTerm && (
+        <div className="px-3 pb-1">
+          <h2 className="text-base font-bold text-white truncate">{displayTerm}</h2>
+        </div>
+      )}
 
       {/* TL;DR (tech mode only) */}
       {isTechMode && tldr && (
@@ -186,7 +220,7 @@ export default function FloatingPanel() {
           </button>
         )}
         <button
-          onClick={hidePanel}
+          onClick={handleDismiss}
           className={`py-1.5 text-gray-400 hover:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors ${
             mode === 'improve' && result && result.changes.length > 0 ? 'flex-1' : 'w-full'
           }`}
