@@ -2,6 +2,7 @@ mod models;
 mod ai;
 mod clipboard;
 mod keyring_manager;
+mod ocr;
 
 pub fn run() {
     tauri::Builder::default()
