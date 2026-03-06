@@ -1,9 +1,10 @@
+import FloatingPanel from './components/FloatingPanel';
+// import Settings from './components/Settings'; // Task 14
+
 function App() {
-  return (
-    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-      <h1 className="text-2xl font-bold">Quill</h1>
-    </div>
-  );
+  // For now, just render FloatingPanel
+  // Task 14 will add Settings routing based on window label
+  return <FloatingPanel />;
 }
 
 export default App;
