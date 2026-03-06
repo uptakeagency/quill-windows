@@ -94,7 +94,7 @@ Respond ONLY with valid JSON in this exact format:
   ],
   \"vocabulary\": [
     {
-      \"original\": \"word from the text\",
+      \"word\": \"word from the text\",
       \"suggestion\": \"richer/more precise alternative\",
       \"definition\": \"clear definition of the suggested word\",
       \"example\": \"example sentence using the suggested word\",
@@ -206,7 +206,7 @@ Respond ONLY with valid JSON in this exact format (no markdown fences, no extra 
   \"explanation\": \"**term** (native translation) \u{2014} brief context about what this tool does and why you might look for alternatives.\",
   \"resources\": [],
   \"alternatives\": [
-    {\"name\": \"AlternativeName\", \"description\": \"What it is in native language\", \"pros\": \"Key advantages\", \"cons\": \"Key disadvantages\"}
+    {\"name\": \"AlternativeName\", \"description\": \"What it is in native language\", \"pros\": [\"Key advantage 1\", \"Key advantage 2\"], \"cons\": [\"Key disadvantage 1\"]}
   ]
 }";
 
