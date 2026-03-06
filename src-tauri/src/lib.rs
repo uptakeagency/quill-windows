@@ -7,6 +7,7 @@ mod keyring_manager;
 mod ocr;
 mod panel;
 mod app_state;
+mod tray;
 
 // =============================================================================
 // Tauri commands -- frontend -> backend communication
@@ -343,6 +344,9 @@ pub fn run() {
 
             // Apply Win32 window styles (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
             panel::setup_panel_window(&handle)?;
+
+            // System tray with mode picker, settings access, and quit
+            tray::setup_tray(&handle)?;
 
             Ok(())
         })
