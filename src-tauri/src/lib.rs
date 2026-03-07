@@ -101,6 +101,7 @@ fn get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         "aiProvider": *state.ai_provider.lock().unwrap(),
         "geminiModel": *state.gemini_model.lock().unwrap(),
         "claudeModel": *state.claude_model.lock().unwrap(),
+        "hotkey": *state.hotkey.lock().unwrap(),
     }))
 }
 
@@ -218,7 +219,43 @@ async fn call_ai(
 // Hotkey handler
 // =============================================================================
 
-/// Main hotkey handler -- triggered by Ctrl+Alt+Q.
+/// Update the global hotkey at runtime.
+///
+/// Registers the new shortcut first (so the old one still works if registration fails),
+/// then unregisters the old one and updates AppState.
+#[tauri::command]
+fn update_hotkey(app: tauri::AppHandle, hotkey: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+
+    let state = app.state::<app_state::AppState>();
+    let old_hotkey = state.hotkey.lock().unwrap().clone();
+
+    if hotkey == old_hotkey {
+        return Ok(());
+    }
+
+    // Parse new shortcut string
+    let new_shortcut: Shortcut = hotkey
+        .parse()
+        .map_err(|e| format!("Invalid shortcut '{}': {:?}", hotkey, e))?;
+
+    // Register new shortcut (uses the builder's global handler)
+    app.global_shortcut()
+        .register(new_shortcut)
+        .map_err(|e| format!("Failed to register '{}': {}", hotkey, e))?;
+
+    // Unregister old
+    if let Ok(old_shortcut) = old_hotkey.parse::<Shortcut>() {
+        let _ = app.global_shortcut().unregister(old_shortcut);
+    }
+
+    // Update state
+    *state.hotkey.lock().unwrap() = hotkey;
+
+    Ok(())
+}
+
+/// Main hotkey handler -- triggered by the configured shortcut.
 ///
 /// Flow: capture text -> detect language -> show panel -> call AI -> emit result.
 async fn handle_hotkey(app: tauri::AppHandle) -> Result<(), String> {
@@ -321,8 +358,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcut("ctrl+alt+q")
-                .expect("failed to register Ctrl+Alt+Q shortcut")
                 .with_handler(|app, _shortcut, event| {
                     use tauri_plugin_global_shortcut::ShortcutState;
                     if event.state == ShortcutState::Pressed {
@@ -351,6 +386,20 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
+            // Register the configured hotkey at runtime
+            {
+                use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+                let state = handle.state::<app_state::AppState>();
+                let hotkey_str = state.hotkey.lock().unwrap().clone();
+                let shortcut: Shortcut = hotkey_str
+                    .parse()
+                    .expect(&format!("Invalid default hotkey '{}'", hotkey_str));
+                handle
+                    .global_shortcut()
+                    .register(shortcut)
+                    .expect(&format!("Failed to register hotkey '{}'", hotkey_str));
+            }
+
             // Apply Win32 window styles (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
             panel::setup_panel_window(&handle)?;
 
@@ -366,6 +415,7 @@ pub fn run() {
             change_level,
             get_settings,
             save_settings,
+            update_hotkey,
             hide_panel_cmd,
             keyring_manager::get_gemini_key,
             keyring_manager::save_gemini_key,

@@ -14,6 +14,8 @@ export default function Settings() {
   const [mode, setMode] = useState<AnalysisMode>('techExplain');
   const [level, setLevel] = useState<ExplanationLevel>('eli15');
   const [tone, setTone] = useState<ToneStyle | ''>('');
+  const [hotkey, setHotkey] = useState('Ctrl+Shift+Q');
+  const [isRecordingHotkey, setIsRecordingHotkey] = useState(false);
 
   // API key state
   const [geminiKeyInput, setGeminiKeyInput] = useState('');
@@ -36,6 +38,7 @@ export default function Settings() {
       setMode(settings.mode);
       setLevel(settings.level);
       setTone(settings.tone ?? '');
+      setHotkey(settings.hotkey ?? 'Ctrl+Shift+Q');
     });
 
     invoke<string | null>('get_gemini_key').then((key) => {
@@ -277,6 +280,74 @@ export default function Settings() {
                 className={inputClass}
               />
             </div>
+          </div>
+        </section>
+
+        {/* Keyboard Shortcut */}
+        <section className="py-4 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Keyboard Shortcut</h2>
+          <div>
+            <label className={labelClass}>Activation Shortcut</label>
+            <div
+              tabIndex={0}
+              onClick={() => setIsRecordingHotkey(true)}
+              onBlur={() => setIsRecordingHotkey(false)}
+              onKeyDown={(e) => {
+                if (!isRecordingHotkey) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                const parts: string[] = [];
+                if (e.ctrlKey) parts.push('Ctrl');
+                if (e.altKey) parts.push('Alt');
+                if (e.shiftKey) parts.push('Shift');
+                if (e.metaKey) parts.push('Super');
+
+                // Ignore modifier-only presses
+                if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+
+                // Map physical key code to Tauri shortcut name
+                const code = e.code;
+                let tauriKey: string | null = null;
+                if (code.startsWith('Key')) tauriKey = code.slice(3);
+                else if (code.startsWith('Digit')) tauriKey = code.slice(5);
+                else if (/^F\d+$/.test(code)) tauriKey = code;
+                else if (code === 'Space') tauriKey = 'Space';
+                else if (code === 'Escape') tauriKey = 'Escape';
+                else if (code === 'Tab') tauriKey = 'Tab';
+                else if (code === 'Enter') tauriKey = 'Enter';
+                else if (code === 'Backspace') tauriKey = 'Backspace';
+                else if (code === 'Delete') tauriKey = 'Delete';
+
+                if (!tauriKey || parts.length === 0) return;
+                parts.push(tauriKey);
+                const newHotkey = parts.join('+');
+
+                invoke('update_hotkey', { hotkey: newHotkey })
+                  .then(() => {
+                    setHotkey(newHotkey);
+                    setIsRecordingHotkey(false);
+                    showKeyFeedback('hotkey', 'Updated');
+                  })
+                  .catch((err) => {
+                    setIsRecordingHotkey(false);
+                    showKeyFeedback('hotkey', `Failed: ${err}`);
+                  });
+              }}
+              className={`${inputClass} cursor-pointer text-center font-mono ${
+                isRecordingHotkey
+                  ? 'ring-2 ring-blue-400 border-transparent bg-blue-50'
+                  : ''
+              }`}
+            >
+              {isRecordingHotkey ? 'Press a key combination...' : hotkey}
+            </div>
+            {keyStatus.hotkey && (
+              <p className="text-xs mt-1 text-gray-500">{keyStatus.hotkey}</p>
+            )}
+            <p className="text-xs text-gray-400 mt-1">
+              Click the field and press your desired key combination
+            </p>
           </div>
         </section>
 

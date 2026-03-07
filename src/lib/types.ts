@@ -72,6 +72,7 @@ export interface AppSettings {
   aiProvider: string;
   geminiModel: string;
   claudeModel: string;
+  hotkey?: string;
 }
 
 // Event payloads from Rust backend

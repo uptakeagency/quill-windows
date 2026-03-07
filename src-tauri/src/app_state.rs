@@ -18,6 +18,7 @@ pub struct AppState {
     pub ai_provider: Mutex<String>,
     pub gemini_model: Mutex<String>,
     pub claude_model: Mutex<String>,
+    pub hotkey: Mutex<String>,
 }
 
 impl Default for AppState {
@@ -32,6 +33,7 @@ impl Default for AppState {
             ai_provider: Mutex::new("gemini".to_string()),
             gemini_model: Mutex::new("gemini-2.5-flash".to_string()),
             claude_model: Mutex::new("claude-sonnet-4-20250514".to_string()),
+            hotkey: Mutex::new("Ctrl+Shift+Q".to_string()),
         }
     }
 }
@@ -117,6 +119,19 @@ mod tests {
         let state = AppState::default();
         *state.ai_provider.lock().unwrap() = "claude".to_string();
         assert_eq!(*state.ai_provider.lock().unwrap(), "claude");
+    }
+
+    #[test]
+    fn default_hotkey() {
+        let state = AppState::default();
+        assert_eq!(*state.hotkey.lock().unwrap(), "Ctrl+Shift+Q");
+    }
+
+    #[test]
+    fn hotkey_can_be_changed() {
+        let state = AppState::default();
+        *state.hotkey.lock().unwrap() = "Ctrl+Alt+Space".to_string();
+        assert_eq!(*state.hotkey.lock().unwrap(), "Ctrl+Alt+Space");
     }
 
     #[test]
