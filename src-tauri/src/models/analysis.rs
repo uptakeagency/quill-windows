@@ -46,6 +46,8 @@ pub struct Alternative {
     pub description: String,
     pub pros: Vec<String>,
     pub cons: Vec<String>,
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,9 +182,18 @@ mod tests {
             description: "Async runtime for Rust".to_string(),
             pros: vec!["Fast".to_string(), "Mature".to_string()],
             cons: vec!["Complex".to_string()],
+            url: Some("https://tokio.rs".to_string()),
         };
         let json = serde_json::to_value(&alt).unwrap();
         assert_eq!(json["pros"], serde_json::json!(["Fast", "Mature"]));
         assert_eq!(json["cons"], serde_json::json!(["Complex"]));
+        assert_eq!(json["url"], "https://tokio.rs");
+    }
+
+    #[test]
+    fn alternative_without_url_deserializes() {
+        let json = r#"{"name":"X","description":"Y","pros":[],"cons":[]}"#;
+        let alt: Alternative = serde_json::from_str(json).unwrap();
+        assert!(alt.url.is_none());
     }
 }

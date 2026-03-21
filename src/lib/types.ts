@@ -37,6 +37,7 @@ export interface Alternative {
   description: string;
   pros: string[];
   cons: string[];
+  url?: string;
 }
 
 // Matches Rust AnalysisResult

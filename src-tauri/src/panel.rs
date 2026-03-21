@@ -5,14 +5,14 @@
 //! near the cursor with DPI-aware monitor clamping.
 
 #[cfg(windows)]
-use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{POINT, RECT};
 #[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE,
-    HWND_TOPMOST, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    SWP_SHOWWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GetCursorPos, GetWindowLongPtrW, GetWindowRect, SetWindowLongPtrW, SetWindowPos,
+    GWL_EXSTYLE, HWND_TOPMOST, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SWP_SHOWWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use tauri::Manager;
@@ -114,6 +114,37 @@ pub fn hide_panel(app: &tauri::AppHandle) -> Result<(), String> {
             SWP_HIDEWINDOW | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
         )
         .map_err(|e| format!("SetWindowPos hide failed: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Move the panel by a delta (dx, dy) without activating it.
+///
+/// Reads the current window position via GetWindowRect, adds the deltas,
+/// and calls SetWindowPos with SWP_NOACTIVATE to preserve focus.
+#[cfg(windows)]
+pub fn move_panel_by(app: &tauri::AppHandle, dx: i32, dy: i32) -> Result<(), String> {
+    let panel = app
+        .get_webview_window("panel")
+        .ok_or("Panel window not found")?;
+    let hwnd = panel.hwnd().map_err(|e| e.to_string())?;
+
+    unsafe {
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect)
+            .map_err(|e| format!("GetWindowRect failed: {}", e))?;
+
+        SetWindowPos(
+            hwnd,
+            None,
+            rect.left + dx,
+            rect.top + dy,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER,
+        )
+        .map_err(|e| format!("SetWindowPos move failed: {}", e))?;
     }
 
     Ok(())

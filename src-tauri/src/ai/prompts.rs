@@ -191,6 +191,7 @@ The user will specify their native language. Write ALL descriptions, pros, and c
 
 For the given term, list 3-5 alternatives or competitors. For each alternative provide:
 - name: The tool/library/technology name (English)
+- url: Official website or documentation URL. Use well-known, stable URLs only (e.g. https://react.dev, https://vuejs.org)
 - description: One-line description of what it is (native language)
 - pros: 1-2 key advantages (native language)
 - cons: 1-2 key disadvantages (native language)
@@ -207,7 +208,7 @@ Respond ONLY with valid JSON in this exact format (no markdown fences, no extra 
   \"explanation\": \"**term** (native translation) \u{2014} brief context about what this tool does and why you might look for alternatives.\",
   \"resources\": [],
   \"alternatives\": [
-    {\"name\": \"AlternativeName\", \"description\": \"What it is in native language\", \"pros\": [\"Key advantage 1\", \"Key advantage 2\"], \"cons\": [\"Key disadvantage 1\"]}
+    {\"name\": \"AlternativeName\", \"url\": \"https://example.com\", \"description\": \"What it is in native language\", \"pros\": [\"Key advantage 1\", \"Key advantage 2\"], \"cons\": [\"Key disadvantage 1\"]}
   ]
 }";
 
