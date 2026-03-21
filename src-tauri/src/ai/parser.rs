@@ -342,11 +342,15 @@ fn try_decode_lenient(json: &str, mode: AnalysisMode, original_text: &str) -> Op
                     // Handle pros/cons as either string or array
                     let pros = extract_string_or_array(o.get("pros"));
                     let cons = extract_string_or_array(o.get("cons"));
+                    let url = o.get("url")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     Some(Alternative {
                         name,
                         description,
                         pros,
                         cons,
+                        url,
                     })
                 })
                 .collect()

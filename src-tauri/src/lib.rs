@@ -159,6 +159,12 @@ fn hide_panel_cmd(app: tauri::AppHandle) -> Result<(), String> {
     panel::hide_panel(&app)
 }
 
+/// Move the panel by (dx, dy) pixels without activating it.
+#[tauri::command]
+fn move_panel_by(app: tauri::AppHandle, dx: i32, dy: i32) -> Result<(), String> {
+    panel::move_panel_by(&app, dx, dy)
+}
+
 // =============================================================================
 // AI dispatch helper
 // =============================================================================
@@ -417,6 +423,7 @@ pub fn run() {
             save_settings,
             update_hotkey,
             hide_panel_cmd,
+            move_panel_by,
             keyring_manager::get_gemini_key,
             keyring_manager::save_gemini_key,
             keyring_manager::delete_gemini_key,

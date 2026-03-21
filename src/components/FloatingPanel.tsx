@@ -8,6 +8,7 @@ import Breadcrumb from './Breadcrumb';
 import MarkdownView from './MarkdownView';
 import SuggestionView from './SuggestionView';
 import VocabularyCards from './VocabularyCard';
+import AlternativesView from './AlternativesView';
 import type { AnalysisMode, ExplanationLevel, TechExplanation } from '../lib/types';
 
 export default function FloatingPanel() {
@@ -30,7 +31,35 @@ export default function FloatingPanel() {
   // Refs for stable access in effects
   const levelRef = useRef(level);
   levelRef.current = level;
-  const resultActionRef = useRef<'push' | 'replace'>('push');
+
+  // Drag state for manual window move (preserves WS_EX_NOACTIVATE)
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('button')) return;
+    isDragging.current = true;
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging.current) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    if (dx !== 0 || dy !== 0) {
+      dragStart.current = { x: e.clientX, y: e.clientY };
+      invoke('move_panel_by', { dx, dy });
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (isDragging.current) {
+      isDragging.current = false;
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    }
+  };
 
   // Reset drill-down stack on new text capture (new hotkey press)
   useEffect(() => {
@@ -40,6 +69,7 @@ export default function FloatingPanel() {
   }, [capturedText, drillDown.reset]);
 
   // Sync result to drill-down stack (handles both hotkey and frontend-initiated analyses)
+  // Deterministic: same term → replaceTop (level switch), different term → push (drill-down)
   useEffect(() => {
     if (result && result.mode === 'techExplain' && result.explanation) {
       const explanation: TechExplanation = {
@@ -50,14 +80,14 @@ export default function FloatingPanel() {
         resources: result.resources,
         alternatives: result.alternatives,
       };
-      if (resultActionRef.current === 'replace') {
+      const currentTerm = drillDown.current?.term;
+      if (currentTerm && currentTerm.toLowerCase() === explanation.term.toLowerCase()) {
         drillDown.replaceTop(explanation);
       } else {
         drillDown.push(explanation);
       }
-      resultActionRef.current = 'push';
     }
-  }, [result, drillDown.push, drillDown.replaceTop]);
+  }, [result, drillDown.push, drillDown.replaceTop, drillDown.current?.term]);
 
   // ESC key to dismiss
   useEffect(() => {
@@ -76,7 +106,6 @@ export default function FloatingPanel() {
     drillDown.reset();
     // Re-analyze current text in the new mode
     if (capturedText) {
-      resultActionRef.current = 'push';
       if (newMode === 'techExplain') {
         analyze(capturedText, newMode, levelRef.current);
       } else {
@@ -91,13 +120,11 @@ export default function FloatingPanel() {
     // Re-analyze current term with the new level
     const term = drillDown.current?.term ?? capturedText;
     if (term && mode === 'techExplain') {
-      resultActionRef.current = 'replace';
       analyze(term, 'techExplain', newLevel);
     }
   };
 
   const handleTermClick = (term: string) => {
-    resultActionRef.current = 'push';
     analyze(term, 'techExplain', levelRef.current);
   };
 
@@ -117,8 +144,13 @@ export default function FloatingPanel() {
 
   return (
     <div className="w-full h-screen bg-gray-900/95 backdrop-blur-sm rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-700/50">
-      {/* Mode picker */}
-      <div className="px-3 pt-3 pb-2">
+      {/* Mode picker (drag handle) */}
+      <div
+        className="px-3 pt-3 pb-2 cursor-grab active:cursor-grabbing"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      >
         <ModePicker mode={mode} onModeChange={handleModeChange} />
       </div>
 
@@ -173,10 +205,18 @@ export default function FloatingPanel() {
           <>
             {/* Tech Dictionary mode */}
             {isTechMode && currentExplanation && (
-              <MarkdownView
-                content={currentExplanation.explanation}
-                onTermClick={handleTermClick}
-              />
+              <>
+                <MarkdownView
+                  content={currentExplanation.explanation}
+                  onTermClick={handleTermClick}
+                />
+                {level === 'alternatives' && currentExplanation.alternatives && currentExplanation.alternatives.length > 0 && (
+                  <AlternativesView
+                    alternatives={currentExplanation.alternatives}
+                    onTermClick={handleTermClick}
+                  />
+                )}
+              </>
             )}
 
             {/* Improve mode */}
