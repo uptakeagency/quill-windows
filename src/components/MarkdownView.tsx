@@ -16,6 +16,18 @@ function convertTermLinks(content: string): string {
   });
 }
 
+// Ensure code fences (```) are on their own lines for react-markdown to recognize them.
+// AI responses sometimes return ```lang code``` on a single line.
+function fixCodeFences(content: string): string {
+  // Add newline after opening fence + language if followed by non-newline content
+  let result = content.replace(/```(\w+)[ \t]+(?!\n)/g, '```$1\n');
+  // Add newline before closing fence if not preceded by newline
+  result = result.replace(/([^\n])```/g, '$1\n```');
+  // Add newline after closing fence if not followed by newline or end of string
+  result = result.replace(/```([^\n\w])/g, '```\n$1');
+  return result;
+}
+
 // Allow quill:// URLs through the URL transform
 const urlTransform: UrlTransform = (url) => {
   if (url.startsWith('quill://')) return url;
@@ -23,7 +35,7 @@ const urlTransform: UrlTransform = (url) => {
 };
 
 export default function MarkdownView({ content, onTermClick }: MarkdownViewProps) {
-  const processed = useMemo(() => convertTermLinks(content), [content]);
+  const processed = useMemo(() => convertTermLinks(fixCodeFences(content)), [content]);
 
   const components: Components = useMemo(
     () => ({
