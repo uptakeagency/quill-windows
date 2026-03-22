@@ -7,7 +7,7 @@ use super::parser;
 use super::prompts;
 
 /// Default Gemini model.
-pub const DEFAULT_MODEL: &str = "gemini-2.5-flash";
+pub const DEFAULT_MODEL: &str = "gemini-3.1-flash-lite-preview";
 
 /// Request timeout in seconds.
 const TIMEOUT_SECS: u64 = 30;
@@ -33,7 +33,7 @@ fn build_request_body(system_prompt: &str, user_prompt: &str) -> Value {
         ],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 2048
+            "maxOutputTokens": 16384
         }
     })
 }
@@ -61,6 +61,72 @@ fn extract_text_from_response(response_body: &str) -> Result<String, String> {
         })?;
 
     Ok(text.to_string())
+}
+
+/// Fetch available Gemini models filtered for generateContent support.
+///
+/// Returns model IDs (e.g. "gemini-2.5-flash") sorted by name,
+/// filtered to only include Gemini models that support generateContent.
+pub async fn list_models(api_key: &str) -> Result<Vec<(String, String)>, String> {
+    let url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100";
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let response = client.get(url)
+        .header("x-goog-api-key", api_key)
+        .send().await
+        .map_err(|e| format!("Failed to fetch Gemini models: {}", e))?;
+
+    let status = response.status();
+    let body = response.text().await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("Gemini API {}: {}", status.as_u16(), body));
+    }
+
+    let value: Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse models JSON: {}", e))?;
+
+    let mut models: Vec<(String, String)> = value
+        .get("models")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|model| {
+                    let name = model.get("name")?.as_str()?;
+                    let display = model.get("displayName")?.as_str()?;
+                    let methods = model.get("supportedGenerationMethods")?.as_array()?;
+
+                    // Must support generateContent
+                    let supports_gen = methods.iter()
+                        .any(|m| m.as_str() == Some("generateContent"));
+                    if !supports_gen { return None; }
+
+                    // Must be a Gemini model (not PaLM, embedding, etc.)
+                    if !name.contains("gemini") { return None; }
+
+                    // Skip non-text models (image, TTS, robotics, vision, computer-use)
+                    let skip_keywords = ["image", "banana", "tts", "robotics", "computer-use", "customtools"];
+                    let name_lower = name.to_lowercase();
+                    if skip_keywords.iter().any(|kw| name_lower.contains(kw)) {
+                        return None;
+                    }
+
+                    // Extract model ID: "models/gemini-2.5-flash" → "gemini-2.5-flash"
+                    let id = name.strip_prefix("models/").unwrap_or(name);
+
+                    Some((id.to_string(), display.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    models.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(models)
 }
 
 /// Analyze text using the Google Gemini API.
@@ -109,6 +175,20 @@ pub async fn analyze(
         return Err(format!("Gemini API {}: {}", status.as_u16(), response_body));
     }
 
+    // Log finish reason for debugging truncation issues
+    if let Ok(v) = serde_json::from_str::<Value>(&response_body) {
+        let finish = v.get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("finishReason"))
+            .and_then(|r| r.as_str())
+            .unwrap_or("UNKNOWN");
+        let token_count = v.get("usageMetadata")
+            .and_then(|u| u.get("candidatesTokenCount"))
+            .and_then(|t| t.as_u64())
+            .unwrap_or(0);
+        parser::debug_log(&format!("[QUILL] Gemini finishReason={}, outputTokens={}", finish, token_count));
+    }
+
     let ai_text = extract_text_from_response(&response_body)?;
 
     Ok(parser::parse_response(&ai_text, mode, text))
@@ -127,7 +207,7 @@ mod tests {
         let url = build_url(DEFAULT_MODEL);
         assert_eq!(
             url,
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent"
         );
     }
 
@@ -170,7 +250,7 @@ mod tests {
 
         let config = &body["generationConfig"];
         assert_eq!(config["temperature"].as_f64().unwrap(), 0.3);
-        assert_eq!(config["maxOutputTokens"].as_u64().unwrap(), 2048);
+        assert_eq!(config["maxOutputTokens"].as_u64().unwrap(), 16384);
     }
 
     #[test]
@@ -385,7 +465,7 @@ mod tests {
         assert!(body["system_instruction"]["parts"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("5 years old"));
+            .contains("5-year-old"));
         assert!(body["contents"][0]["parts"][0]["text"]
             .as_str()
             .unwrap()

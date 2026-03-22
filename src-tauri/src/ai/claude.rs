@@ -22,7 +22,7 @@ const TIMEOUT_SECS: u64 = 30;
 fn build_request_body(model: &str, system_prompt: &str, user_prompt: &str) -> Value {
     json!({
         "model": model,
-        "max_tokens": 2048,
+        "max_tokens": 16384,
         "system": [
             {
                 "type": "text",
@@ -37,6 +37,54 @@ fn build_request_body(model: &str, system_prompt: &str, user_prompt: &str) -> Va
             }
         ]
     })
+}
+
+/// Fetch available Claude models from the Anthropic API.
+///
+/// Returns model IDs and display names, sorted by ID.
+pub async fn list_models(api_key: &str) -> Result<Vec<(String, String)>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let response = client
+        .get("https://api.anthropic.com/v1/models?limit=100")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch Claude models: {}", e))?;
+
+    let status = response.status();
+    let body = response.text().await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("Claude API {}: {}", status.as_u16(), body));
+    }
+
+    let value: Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse models JSON: {}", e))?;
+
+    let mut models: Vec<(String, String)> = value
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|model| {
+                    let id = model.get("id")?.as_str()?;
+                    let display = model.get("display_name")
+                        .and_then(|d| d.as_str())
+                        .unwrap_or(id);
+                    Some((id.to_string(), display.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    models.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(models)
 }
 
 /// Extract the text content from a Claude API response JSON string.
@@ -141,7 +189,7 @@ mod tests {
     fn build_request_body_has_max_tokens() {
         let body = build_request_body(DEFAULT_MODEL, "sys", "user");
 
-        assert_eq!(body["max_tokens"].as_u64().unwrap(), 2048);
+        assert_eq!(body["max_tokens"].as_u64().unwrap(), 16384);
     }
 
     #[test]
@@ -356,7 +404,7 @@ mod tests {
         assert!(body["system"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("5 years old"));
+            .contains("5-year-old"));
         assert!(body["messages"][0]["content"]
             .as_str()
             .unwrap()

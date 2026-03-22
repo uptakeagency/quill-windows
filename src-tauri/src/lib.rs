@@ -165,6 +165,22 @@ fn move_panel_by(app: tauri::AppHandle, dx: i32, dy: i32) -> Result<(), String> 
     panel::move_panel_by(&app, dx, dy)
 }
 
+/// List available Gemini models (filtered for generateContent support).
+#[tauri::command]
+async fn list_gemini_models() -> Result<Vec<(String, String)>, String> {
+    let api_key = keyring_manager::get_api_key(keyring_manager::GEMINI_KEY)
+        .ok_or("Gemini API key not configured")?;
+    ai::gemini::list_models(&api_key).await
+}
+
+/// List available Claude models.
+#[tauri::command]
+async fn list_claude_models() -> Result<Vec<(String, String)>, String> {
+    let api_key = keyring_manager::get_api_key(keyring_manager::CLAUDE_KEY)
+        .ok_or("Claude API key not configured")?;
+    ai::claude::list_models(&api_key).await
+}
+
 // =============================================================================
 // AI dispatch helper
 // =============================================================================
@@ -424,6 +440,8 @@ pub fn run() {
             update_hotkey,
             hide_panel_cmd,
             move_panel_by,
+            list_gemini_models,
+            list_claude_models,
             keyring_manager::get_gemini_key,
             keyring_manager::save_gemini_key,
             keyring_manager::delete_gemini_key,

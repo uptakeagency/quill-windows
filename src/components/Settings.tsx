@@ -7,7 +7,7 @@ type AiProvider = 'gemini' | 'claude';
 export default function Settings() {
   // Form state
   const [aiProvider, setAiProvider] = useState<AiProvider>('gemini');
-  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+  const [geminiModel, setGeminiModel] = useState('gemini-3.1-flash-lite-preview');
   const [claudeModel, setClaudeModel] = useState('claude-sonnet-4-20250514');
   const [nativeLanguage, setNativeLanguage] = useState('Turkish');
   const [targetLanguage, setTargetLanguage] = useState('English');
@@ -27,6 +27,7 @@ export default function Settings() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
 
+  // Fetch models from API
   // Load settings and API key status on mount
   useEffect(() => {
     invoke<AppSettings>('get_settings').then((settings) => {
@@ -39,14 +40,15 @@ export default function Settings() {
       setLevel(settings.level);
       setTone(settings.tone ?? '');
       setHotkey(settings.hotkey ?? 'Ctrl+Shift+Q');
-    });
+    }).catch((err) => console.error('Failed to load settings:', err));
 
     invoke<string | null>('get_gemini_key').then((key) => {
       setHasGeminiKey(!!key);
-    });
+    }).catch((err) => console.error('Failed to check Gemini key:', err));
+
     invoke<string | null>('get_claude_key').then((key) => {
       setHasClaudeKey(!!key);
-    });
+    }).catch((err) => console.error('Failed to check Claude key:', err));
   }, []);
 
   // Save settings to AppState
@@ -66,7 +68,8 @@ export default function Settings() {
       await invoke('save_settings', { settings });
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
-    } catch {
+    } catch (err) {
+      console.error('Failed to save settings:', err);
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
@@ -75,7 +78,7 @@ export default function Settings() {
   // API key handlers
   const showKeyFeedback = (key: string, message: string) => {
     setKeyStatus((prev) => ({ ...prev, [key]: message }));
-    setTimeout(() => setKeyStatus((prev) => ({ ...prev, [key]: '' })), 2000);
+    setTimeout(() => setKeyStatus((prev) => ({ ...prev, [key]: '' })), 3000);
   };
 
   const handleSaveGeminiKey = async () => {
@@ -85,8 +88,8 @@ export default function Settings() {
       setHasGeminiKey(true);
       setGeminiKeyInput('');
       showKeyFeedback('gemini', 'Saved');
-    } catch {
-      showKeyFeedback('gemini', 'Failed to save');
+    } catch (err) {
+      showKeyFeedback('gemini', `Failed to save: ${err}`);
     }
   };
 
@@ -95,8 +98,8 @@ export default function Settings() {
       await invoke('delete_gemini_key');
       setHasGeminiKey(false);
       showKeyFeedback('gemini', 'Deleted');
-    } catch {
-      showKeyFeedback('gemini', 'Failed to delete');
+    } catch (err) {
+      showKeyFeedback('gemini', `Failed to delete: ${err}`);
     }
   };
 
@@ -107,8 +110,8 @@ export default function Settings() {
       setHasClaudeKey(true);
       setClaudeKeyInput('');
       showKeyFeedback('claude', 'Saved');
-    } catch {
-      showKeyFeedback('claude', 'Failed to save');
+    } catch (err) {
+      showKeyFeedback('claude', `Failed to save: ${err}`);
     }
   };
 
@@ -117,8 +120,8 @@ export default function Settings() {
       await invoke('delete_claude_key');
       setHasClaudeKey(false);
       showKeyFeedback('claude', 'Deleted');
-    } catch {
-      showKeyFeedback('claude', 'Failed to delete');
+    } catch (err) {
+      showKeyFeedback('claude', `Failed to delete: ${err}`);
     }
   };
 
@@ -206,6 +209,7 @@ export default function Settings() {
                 type="text"
                 value={geminiModel}
                 onChange={(e) => setGeminiModel(e.target.value)}
+                placeholder="e.g. gemini-2.5-flash, gemini-3.1-flash-lite-preview"
                 className={inputClass}
               />
             </div>
@@ -252,6 +256,7 @@ export default function Settings() {
                 type="text"
                 value={claudeModel}
                 onChange={(e) => setClaudeModel(e.target.value)}
+                placeholder="e.g. claude-sonnet-4-20250514"
                 className={inputClass}
               />
             </div>

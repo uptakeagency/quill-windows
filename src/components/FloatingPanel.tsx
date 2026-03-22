@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useDrillDown } from '../hooks/useDrillDown';
 import ModePicker from './ModePicker';
@@ -29,37 +30,12 @@ export default function FloatingPanel() {
   const [mode, setMode] = useState<AnalysisMode>('techExplain');
   const [level, setLevel] = useState<ExplanationLevel>('eli15');
 
-  // Refs for stable access in effects
-  const levelRef = useRef(level);
-  levelRef.current = level;
-
-  // Drag state for manual window move (preserves WS_EX_NOACTIVATE)
-  const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-
-  const handlePointerDown = (e: React.PointerEvent) => {
+  // Native window drag — uses OS drag loop, no IPC overhead
+  const handleDragStart = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('button')) return;
-    isDragging.current = true;
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging.current) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    if (dx !== 0 || dy !== 0) {
-      dragStart.current = { x: e.clientX, y: e.clientY };
-      invoke('move_panel_by', { dx, dy });
-    }
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (isDragging.current) {
-      isDragging.current = false;
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    }
+    e.preventDefault();
+    getCurrentWindow().startDragging().catch(() => {});
   };
 
   // Reset drill-down stack on new text capture (new hotkey press)
@@ -69,14 +45,14 @@ export default function FloatingPanel() {
     }
   }, [capturedText, drillDown.reset]);
 
-  // Sync result to drill-down stack (handles both hotkey and frontend-initiated analyses)
-  // Deterministic: same term → replaceTop (level switch), different term → push (drill-down)
+  // Sync result to drill-down stack
+  // Combined mode: result.levels contains all 6 level explanations in one response
   useEffect(() => {
-    if (result && result.mode === 'techExplain' && result.explanation) {
+    if (result && result.mode === 'techExplain' && (result.levels || result.explanation)) {
+      const levels = result.levels ?? { eli15: result.explanation ?? '' };
       const explanation: TechExplanation = {
         term: result.original,
-        level: levelRef.current,
-        explanation: result.explanation,
+        levels,
         tldr: result.tldr,
         resources: result.resources,
         alternatives: result.alternatives,
@@ -94,7 +70,7 @@ export default function FloatingPanel() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        invoke('hide_panel_cmd');
+        invoke('hide_panel_cmd').catch(() => {});
       }
     }
     window.addEventListener('keydown', handleKeyDown);
@@ -105,28 +81,19 @@ export default function FloatingPanel() {
     setMode(newMode);
     changeMode(newMode);
     drillDown.reset();
-    // Re-analyze current text in the new mode
     if (capturedText) {
-      if (newMode === 'techExplain') {
-        analyze(capturedText, newMode, levelRef.current);
-      } else {
-        analyze(capturedText, newMode);
-      }
+      analyze(capturedText, newMode);
     }
   };
 
   const handleLevelChange = (newLevel: ExplanationLevel) => {
     setLevel(newLevel);
     changeLevel(newLevel);
-    // Re-analyze current term with the new level
-    const term = drillDown.current?.term ?? capturedText;
-    if (term && mode === 'techExplain') {
-      analyze(term, 'techExplain', newLevel);
-    }
+    // No API call — just switch displayed content from pre-fetched levels
   };
 
   const handleTermClick = (term: string) => {
-    analyze(term, 'techExplain', levelRef.current);
+    analyze(term, 'techExplain');
   };
 
   const handleApply = async (text: string) => {
@@ -142,15 +109,14 @@ export default function FloatingPanel() {
   const currentExplanation = drillDown.current;
   const displayTerm = currentExplanation?.term ?? capturedText;
   const tldr = currentExplanation?.tldr ?? result?.tldr;
+  const levelContent = currentExplanation?.levels[level];
 
   return (
     <div className="w-full h-screen bg-gray-900/95 backdrop-blur-sm rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-700/50">
       {/* Mode picker (drag handle) */}
       <div
-        className="px-3 pt-3 pb-2 cursor-grab active:cursor-grabbing"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
+        className="px-3 pt-3 pb-2 cursor-grab active:cursor-grabbing select-none"
+        onMouseDown={handleDragStart}
       >
         <ModePicker mode={mode} onModeChange={handleModeChange} />
       </div>
@@ -207,18 +173,26 @@ export default function FloatingPanel() {
             {/* Tech Dictionary mode */}
             {isTechMode && currentExplanation && (
               <>
-                <MarkdownView
-                  content={currentExplanation.explanation}
-                  onTermClick={handleTermClick}
-                />
-                {level === 'alternatives' && currentExplanation.alternatives && currentExplanation.alternatives.length > 0 && (
-                  <AlternativesView
-                    alternatives={currentExplanation.alternatives}
-                    onTermClick={handleTermClick}
-                  />
-                )}
-                {currentExplanation.resources && currentExplanation.resources.length > 0 && (
-                  <ResourcesView resources={currentExplanation.resources} />
+                {levelContent ? (
+                  <>
+                    <MarkdownView
+                      content={levelContent}
+                      onTermClick={handleTermClick}
+                    />
+                    {level === 'alternatives' && currentExplanation.alternatives && currentExplanation.alternatives.length > 0 && (
+                      <AlternativesView
+                        alternatives={currentExplanation.alternatives}
+                        onTermClick={handleTermClick}
+                      />
+                    )}
+                    {level === 'resources' && currentExplanation.resources && currentExplanation.resources.length > 0 && (
+                      <ResourcesView resources={currentExplanation.resources} />
+                    )}
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-500 py-8 text-center">
+                    This level is not available for the current term.
+                  </div>
                 )}
               </>
             )}

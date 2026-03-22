@@ -1,8 +1,16 @@
+use std::collections::HashMap;
+
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::models::{Alternative, AnalysisMode, AnalysisResult, ResourceLink, TextChange, VocabularyCard};
+
+/// Log a debug message for parser diagnostics.
+#[allow(dead_code)]
+pub fn debug_log(msg: &str) {
+    log::debug!("{}", msg);
+}
 
 /// Private struct matching the expected AI JSON output.
 /// Unlike `AnalysisResult`, this omits `mode` and `original`.
@@ -16,6 +24,17 @@ struct AIResponse {
     tldr: Option<String>,
     resources: Option<Vec<ResourceLink>>,
     alternatives: Option<Vec<Alternative>>,
+    #[serde(default)]
+    levels: Option<HashMap<String, String>>,
+    // Top-level level fields (AI may return these instead of nested "levels" object)
+    eli5: Option<String>,
+    eli15: Option<String>,
+    professional: Option<String>,
+    samples: Option<String>,
+    #[serde(rename = "resources_explanation")]
+    resources_text: Option<String>,
+    #[serde(rename = "alternatives_text")]
+    alternatives_text: Option<String>,
 }
 
 /// Parse a raw AI response string into an `AnalysisResult`.
@@ -28,20 +47,28 @@ struct AIResponse {
 /// 5. Regex extraction of the "explanation" field
 /// 6. Final fallback: raw text as explanation or corrected text
 pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> AnalysisResult {
-    let cleaned = extract_json(raw);
+    // Sanitize BEFORE extracting JSON — literal newlines inside JSON strings
+    // break the brace matcher's in_string tracking
+    let sanitized_raw = sanitize_json(raw);
+    let cleaned = extract_json(&sanitized_raw);
+
+    debug_log(&format!("\n=== NEW PARSE ({} chars) ===\n{}", raw.len(), raw));
+    debug_log(&format!("[QUILL] Cleaned JSON ({} chars, first 200): {:?}", cleaned.len(), &cleaned[..cleaned.len().min(200)]));
 
     // Layer 2: Try direct deserialization
     let mut result = try_decode(&cleaned, mode, original_text);
+    debug_log(&format!("[QUILL] Layer 2 (strict serde): {}", if result.is_some() { "OK" } else { "FAIL" }));
 
-    // Layer 3 & 4: Sanitize and retry
+    if let Some(ref r) = result {
+        debug_log(&format!("[QUILL] Layer 2 levels keys: {:?}", r.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
+    }
+
+    // Layer 3 & 4: Lenient parsing
     if result.is_none() {
-        let sanitized = sanitize_json(&cleaned);
-        if sanitized != cleaned {
-            result = try_decode(&sanitized, mode, original_text);
-        }
-        // Layer 4: Lenient Value-based parsing
-        if result.is_none() {
-            result = try_decode_lenient(&sanitized, mode, original_text);
+        result = try_decode_lenient(&cleaned, mode, original_text);
+        debug_log(&format!("[QUILL] Layer 4 (lenient): {}", if result.is_some() { "OK" } else { "FAIL" }));
+        if let Some(ref r) = result {
+            debug_log(&format!("[QUILL] Layer 4 levels keys: {:?}", r.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
         }
     }
 
@@ -58,6 +85,7 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
                 resources: None,
                 alternatives: None,
                 vocabulary: vec![],
+                levels: None,
             });
         }
     }
@@ -73,6 +101,16 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
         final_result.tldr = Some(normalize_escapes(tldr));
     }
 
+    // Normalize escapes in all level explanations
+    if let Some(ref mut levels) = final_result.levels {
+        for value in levels.values_mut() {
+            *value = normalize_escapes(value);
+        }
+    }
+
+    debug_log(&format!("[QUILL] FINAL levels keys: {:?}", final_result.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
+    debug_log(&format!("[QUILL] FINAL explanation present: {}", final_result.explanation.is_some()));
+
     // Mode-specific field filtering
     if final_result.mode != AnalysisMode::Improve {
         final_result.vocabulary = vec![];
@@ -86,22 +124,20 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
 
 /// Extract JSON content from a string, stripping markdown fences or finding matching braces.
 fn extract_json(text: &str) -> String {
-    // Try markdown code fences: ```json ... ``` or ```JSON ... ```
+    // If wrapped in markdown fences, skip the opening fence then use brace matching.
+    // We cannot use fence-end matching because the JSON content itself may contain
+    // ``` markers (e.g. code blocks inside "samples" level explanations).
     let fence_start = Regex::new(r"```(?:json|JSON)?\s*\n?").unwrap();
-    let fence_end = Regex::new(r"\n?\s*```").unwrap();
+    let content = if let Some(start_match) = fence_start.find(text) {
+        &text[start_match.end()..]
+    } else {
+        text
+    };
 
-    if let Some(start_match) = fence_start.find(text) {
-        let after_start = start_match.end();
-        if let Some(end_match) = fence_end.find(&text[after_start..]) {
-            let json_content = &text[after_start..after_start + end_match.start()];
-            return json_content.to_string();
-        }
-    }
-
-    // Try matching braces from first {
-    if let Some(start) = text.find('{') {
-        if let Some(end) = find_matching_brace(text, start) {
-            return text[start..=end].to_string();
+    // Use brace matching (handles ``` inside JSON strings correctly)
+    if let Some(start) = content.find('{') {
+        if let Some(end) = find_matching_brace(content, start) {
+            return content[start..=end].to_string();
         }
     }
 
@@ -254,13 +290,24 @@ fn normalize_escapes(text: &str) -> String {
 
 /// Try to deserialize the JSON string directly into `AIResponse`, then convert to `AnalysisResult`.
 fn try_decode(json: &str, mode: AnalysisMode, original_text: &str) -> Option<AnalysisResult> {
-    let response: AIResponse = serde_json::from_str(json).ok()?;
-    Some(ai_response_to_result(response, mode, original_text))
+    match serde_json::from_str::<AIResponse>(json) {
+        Ok(response) => Some(ai_response_to_result(response, mode, original_text)),
+        Err(e) => {
+            debug_log(&format!("[QUILL] serde error: {}", e));
+            None
+        }
+    }
 }
 
 /// Lenient parsing using `serde_json::Value` with manual field extraction.
 fn try_decode_lenient(json: &str, mode: AnalysisMode, original_text: &str) -> Option<AnalysisResult> {
-    let value: Value = serde_json::from_str(json).ok()?;
+    let value: Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(e) => {
+            debug_log(&format!("[QUILL] lenient Value parse error: {}", e));
+            return None;
+        }
+    };
     let obj = value.as_object()?;
 
     let corrected = obj
@@ -356,6 +403,80 @@ fn try_decode_lenient(json: &str, mode: AnalysisMode, original_text: &str) -> Op
                 .collect()
         });
 
+    // Try nested "levels" object first, then fall back to top-level level fields.
+    // AI may return either: {"levels": {"eli5": "...", ...}} or {"eli5": "...", ...}
+    // Only collect string-valued top-level fields (skip "resources" and "alternatives"
+    // which are arrays, not level text)
+    let text_level_keys = ["eli5", "eli15", "professional", "samples"];
+    // These keys may be strings (level text) or arrays (structured data) — only take strings
+    let ambiguous_keys = ["resources", "alternatives"];
+
+    let levels = {
+        // Option 1: nested "levels" object
+        let nested = obj
+            .get("levels")
+            .and_then(|v| v.as_object())
+            .map(|lvls| {
+                lvls.iter()
+                    .filter_map(|(k, v)| {
+                        // String value → use directly
+                        if let Some(s) = v.as_str() {
+                            return Some((k.clone(), s.to_string()));
+                        }
+                        // Array of strings → join as bullet list
+                        if let Some(arr) = v.as_array() {
+                            let items: Vec<String> = arr.iter()
+                                .filter_map(|item| item.as_str().map(|s| format!("- {}", s)))
+                                .collect();
+                            if !items.is_empty() {
+                                return Some((k.clone(), items.join("\n")));
+                            }
+                        }
+                        None
+                    })
+                    .collect::<HashMap<String, String>>()
+            });
+
+        if nested.as_ref().map_or(true, |m| m.is_empty()) {
+            // Option 2: top-level fields (eli5, eli15, professional, samples, etc.)
+            let mut top_level: HashMap<String, String> = text_level_keys
+                .iter()
+                .filter_map(|key| {
+                    obj.get(*key)
+                        .and_then(|v| v.as_str())
+                        .map(|s| (key.to_string(), s.to_string()))
+                })
+                .collect();
+
+            // For ambiguous keys, only take if they're strings (not arrays)
+            for key in &ambiguous_keys {
+                if let Some(Value::String(s)) = obj.get(*key) {
+                    top_level.insert(key.to_string(), s.clone());
+                }
+            }
+
+            // Also check "resources_explanation" / "alternatives_text" variants
+            if let Some(s) = obj.get("resources_explanation").and_then(|v| v.as_str()) {
+                top_level.insert("resources".to_string(), s.to_string());
+            }
+            if let Some(s) = obj.get("alternatives_text").and_then(|v| v.as_str()) {
+                top_level.insert("alternatives".to_string(), s.to_string());
+            }
+            if let Some(s) = obj.get("alternatives_context").and_then(|v| v.as_str()) {
+                top_level.insert("alternatives".to_string(), s.to_string());
+            }
+
+            if top_level.is_empty() { nested } else { Some(top_level) }
+        } else {
+            nested
+        }
+    };
+
+    // Use eli15 from levels as fallback explanation
+    let explanation = explanation.or_else(|| {
+        levels.as_ref().and_then(|l| l.get("eli15").cloned())
+    });
+
     Some(AnalysisResult {
         mode,
         original: original_text.to_string(),
@@ -366,6 +487,7 @@ fn try_decode_lenient(json: &str, mode: AnalysisMode, original_text: &str) -> Op
         resources,
         alternatives,
         vocabulary,
+        levels,
     })
 }
 
@@ -383,16 +505,35 @@ fn extract_string_or_array(value: Option<&Value>) -> Vec<String> {
 
 /// Convert an `AIResponse` into an `AnalysisResult`, filling in mode and original.
 fn ai_response_to_result(response: AIResponse, mode: AnalysisMode, original_text: &str) -> AnalysisResult {
+    // Build levels from nested object or top-level fields
+    let levels = if response.levels.as_ref().map_or(true, |m| m.is_empty()) {
+        // Collect top-level level fields
+        let mut map = HashMap::new();
+        if let Some(v) = response.eli5 { map.insert("eli5".to_string(), v); }
+        if let Some(v) = response.eli15 { map.insert("eli15".to_string(), v); }
+        if let Some(v) = response.professional { map.insert("professional".to_string(), v); }
+        if let Some(v) = response.samples { map.insert("samples".to_string(), v); }
+        if let Some(v) = response.resources_text { map.insert("resources".to_string(), v); }
+        if let Some(v) = response.alternatives_text { map.insert("alternatives".to_string(), v); }
+        if map.is_empty() { response.levels } else { Some(map) }
+    } else {
+        response.levels
+    };
+
+    let explanation = response.explanation.or_else(|| {
+        levels.as_ref().and_then(|l| l.get("eli15").cloned())
+    });
     AnalysisResult {
         mode,
         original: original_text.to_string(),
         corrected: response.corrected.unwrap_or_else(|| original_text.to_string()),
         changes: response.changes,
-        explanation: response.explanation,
+        explanation,
         tldr: response.tldr,
         resources: response.resources,
         alternatives: response.alternatives,
         vocabulary: response.vocabulary.unwrap_or_default(),
+        levels,
     }
 }
 
@@ -421,6 +562,7 @@ fn fallback_result(text: &str, mode: AnalysisMode, original_text: &str) -> Analy
         resources: None,
         alternatives: None,
         vocabulary: vec![],
+        levels: None,
     }
 }
 

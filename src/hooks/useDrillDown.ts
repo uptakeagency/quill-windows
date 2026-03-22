@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { TechExplanation, ExplanationLevel } from '../lib/types';
+import type { TechExplanation } from '../lib/types';
 
 interface DrillDownState {
   stack: TechExplanation[];
@@ -18,9 +18,8 @@ export function useDrillDown() {
 
   const push = useCallback((explanation: TechExplanation) => {
     setState((prev) => {
-      const key = `${explanation.term}:${explanation.level}`;
       const newCache = new Map(prev.cache);
-      newCache.set(key, explanation);
+      newCache.set(explanation.term, explanation);
       return {
         stack: [...prev.stack, explanation],
         cache: newCache,
@@ -50,9 +49,8 @@ export function useDrillDown() {
 
   const replaceTop = useCallback((explanation: TechExplanation) => {
     setState((prev) => {
-      const key = `${explanation.term}:${explanation.level}`;
       const newCache = new Map(prev.cache);
-      newCache.set(key, explanation);
+      newCache.set(explanation.term, explanation);
       if (prev.stack.length === 0) {
         return { stack: [explanation], cache: newCache };
       }
@@ -63,8 +61,8 @@ export function useDrillDown() {
   }, []);
 
   const getCached = useCallback(
-    (term: string, level: ExplanationLevel): TechExplanation | undefined => {
-      return state.cache.get(`${term}:${level}`);
+    (term: string): TechExplanation | undefined => {
+      return state.cache.get(term);
     },
     [state.cache],
   );
