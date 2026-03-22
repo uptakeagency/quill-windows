@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import type { Components, UrlTransform } from 'react-markdown';
+import { openUrl } from '../lib/openUrl';
 
 interface MarkdownViewProps {
   content: string;
@@ -53,9 +54,12 @@ export default function MarkdownView({ content, onTermClick }: MarkdownViewProps
           );
         }
         return (
-          <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">
+          <button
+            onClick={() => href && openUrl(href)}
+            className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+          >
             {children}
-          </a>
+          </button>
         );
       },
       code(props: { children?: ReactNode; className?: string }) {
