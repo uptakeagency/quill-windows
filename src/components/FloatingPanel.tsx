@@ -35,7 +35,7 @@ export default function FloatingPanel() {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('button')) return;
     e.preventDefault();
-    getCurrentWindow().startDragging();
+    getCurrentWindow().startDragging().catch(() => {});
   };
 
   // Reset drill-down stack on new text capture (new hotkey press)
@@ -70,7 +70,7 @@ export default function FloatingPanel() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        invoke('hide_panel_cmd');
+        invoke('hide_panel_cmd').catch(() => {});
       }
     }
     window.addEventListener('keydown', handleKeyDown);
@@ -171,20 +171,28 @@ export default function FloatingPanel() {
         {!isAnalyzing && !error && result && (
           <>
             {/* Tech Dictionary mode */}
-            {isTechMode && currentExplanation && levelContent && (
+            {isTechMode && currentExplanation && (
               <>
-                <MarkdownView
-                  content={levelContent}
-                  onTermClick={handleTermClick}
-                />
-                {level === 'alternatives' && currentExplanation.alternatives && currentExplanation.alternatives.length > 0 && (
-                  <AlternativesView
-                    alternatives={currentExplanation.alternatives}
-                    onTermClick={handleTermClick}
-                  />
-                )}
-                {level === 'resources' && currentExplanation.resources && currentExplanation.resources.length > 0 && (
-                  <ResourcesView resources={currentExplanation.resources} />
+                {levelContent ? (
+                  <>
+                    <MarkdownView
+                      content={levelContent}
+                      onTermClick={handleTermClick}
+                    />
+                    {level === 'alternatives' && currentExplanation.alternatives && currentExplanation.alternatives.length > 0 && (
+                      <AlternativesView
+                        alternatives={currentExplanation.alternatives}
+                        onTermClick={handleTermClick}
+                      />
+                    )}
+                    {level === 'resources' && currentExplanation.resources && currentExplanation.resources.length > 0 && (
+                      <ResourcesView resources={currentExplanation.resources} />
+                    )}
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-500 py-8 text-center">
+                    This level is not available for the current term.
+                  </div>
                 )}
               </>
             )}

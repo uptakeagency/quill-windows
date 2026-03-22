@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Write;
 
 use regex::Regex;
 use serde::Deserialize;
@@ -7,14 +6,10 @@ use serde_json::Value;
 
 use crate::models::{Alternative, AnalysisMode, AnalysisResult, ResourceLink, TextChange, VocabularyCard};
 
-/// Append debug message to a log file (for debugging).
+/// Log a debug message for parser diagnostics.
 #[allow(dead_code)]
-pub fn debug_log(_msg: &str) {
-    // Disabled in production. Enable by uncommenting:
-    // if let Ok(mut f) = std::fs::OpenOptions::new()
-    //     .create(true).append(true)
-    //     .open(std::env::temp_dir().join("quill-debug.log"))
-    // { let _ = writeln!(f, "{}", _msg); }
+pub fn debug_log(msg: &str) {
+    log::debug!("{}", msg);
 }
 
 /// Private struct matching the expected AI JSON output.

@@ -68,17 +68,16 @@ fn extract_text_from_response(response_body: &str) -> Result<String, String> {
 /// Returns model IDs (e.g. "gemini-2.5-flash") sorted by name,
 /// filtered to only include Gemini models that support generateContent.
 pub async fn list_models(api_key: &str) -> Result<Vec<(String, String)>, String> {
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models?key={}&pageSize=100",
-        api_key
-    );
+    let url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100";
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
 
-    let response = client.get(&url).send().await
+    let response = client.get(url)
+        .header("x-goog-api-key", api_key)
+        .send().await
         .map_err(|e| format!("Failed to fetch Gemini models: {}", e))?;
 
     let status = response.status();

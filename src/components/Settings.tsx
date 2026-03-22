@@ -40,8 +40,10 @@ export default function Settings() {
     try {
       const models = await invoke<ModelEntry[]>('list_gemini_models');
       setGeminiModels(models);
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch Gemini models:', err);
       setGeminiModels([]);
+      showKeyFeedback('gemini', `Failed to load models: ${err}`);
     }
     setLoadingGeminiModels(false);
   }, []);
@@ -51,8 +53,10 @@ export default function Settings() {
     try {
       const models = await invoke<ModelEntry[]>('list_claude_models');
       setClaudeModels(models);
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch Claude models:', err);
       setClaudeModels([]);
+      showKeyFeedback('claude', `Failed to load models: ${err}`);
     }
     setLoadingClaudeModels(false);
   }, []);
@@ -69,16 +73,17 @@ export default function Settings() {
       setLevel(settings.level);
       setTone(settings.tone ?? '');
       setHotkey(settings.hotkey ?? 'Ctrl+Shift+Q');
-    });
+    }).catch((err) => console.error('Failed to load settings:', err));
 
     invoke<string | null>('get_gemini_key').then((key) => {
       setHasGeminiKey(!!key);
       if (key) fetchGeminiModels();
-    });
+    }).catch((err) => console.error('Failed to check Gemini key:', err));
+
     invoke<string | null>('get_claude_key').then((key) => {
       setHasClaudeKey(!!key);
       if (key) fetchClaudeModels();
-    });
+    }).catch((err) => console.error('Failed to check Claude key:', err));
   }, [fetchGeminiModels, fetchClaudeModels]);
 
   // Save settings to AppState
@@ -98,7 +103,8 @@ export default function Settings() {
       await invoke('save_settings', { settings });
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
-    } catch {
+    } catch (err) {
+      console.error('Failed to save settings:', err);
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
@@ -107,7 +113,7 @@ export default function Settings() {
   // API key handlers
   const showKeyFeedback = (key: string, message: string) => {
     setKeyStatus((prev) => ({ ...prev, [key]: message }));
-    setTimeout(() => setKeyStatus((prev) => ({ ...prev, [key]: '' })), 2000);
+    setTimeout(() => setKeyStatus((prev) => ({ ...prev, [key]: '' })), 3000);
   };
 
   const handleSaveGeminiKey = async () => {
@@ -118,8 +124,8 @@ export default function Settings() {
       setGeminiKeyInput('');
       showKeyFeedback('gemini', 'Saved');
       fetchGeminiModels();
-    } catch {
-      showKeyFeedback('gemini', 'Failed to save');
+    } catch (err) {
+      showKeyFeedback('gemini', `Failed to save: ${err}`);
     }
   };
 
@@ -129,8 +135,8 @@ export default function Settings() {
       setHasGeminiKey(false);
       setGeminiModels([]);
       showKeyFeedback('gemini', 'Deleted');
-    } catch {
-      showKeyFeedback('gemini', 'Failed to delete');
+    } catch (err) {
+      showKeyFeedback('gemini', `Failed to delete: ${err}`);
     }
   };
 
@@ -142,8 +148,8 @@ export default function Settings() {
       setClaudeKeyInput('');
       showKeyFeedback('claude', 'Saved');
       fetchClaudeModels();
-    } catch {
-      showKeyFeedback('claude', 'Failed to save');
+    } catch (err) {
+      showKeyFeedback('claude', `Failed to save: ${err}`);
     }
   };
 
@@ -153,8 +159,8 @@ export default function Settings() {
       setHasClaudeKey(false);
       setClaudeModels([]);
       showKeyFeedback('claude', 'Deleted');
-    } catch {
-      showKeyFeedback('claude', 'Failed to delete');
+    } catch (err) {
+      showKeyFeedback('claude', `Failed to delete: ${err}`);
     }
   };
 

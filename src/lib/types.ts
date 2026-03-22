@@ -51,13 +51,13 @@ export interface AnalysisResult {
   resources?: ResourceLink[];
   alternatives?: Alternative[];
   vocabulary: VocabularyCard[];
-  levels?: Record<string, string>;
+  levels?: Partial<Record<ExplanationLevel, string>>;
 }
 
 // Tech dictionary entry with all levels pre-fetched
 export interface TechExplanation {
   term: string;
-  levels: Record<string, string>;
+  levels: Partial<Record<ExplanationLevel, string>>;
   tldr?: string;
   resources?: ResourceLink[];
   alternatives?: Alternative[];
