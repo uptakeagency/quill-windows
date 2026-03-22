@@ -33,7 +33,7 @@ fn build_request_body(system_prompt: &str, user_prompt: &str) -> Value {
         ],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 8192
+            "maxOutputTokens": 16384
         }
     })
 }
@@ -250,7 +250,7 @@ mod tests {
 
         let config = &body["generationConfig"];
         assert_eq!(config["temperature"].as_f64().unwrap(), 0.3);
-        assert_eq!(config["maxOutputTokens"].as_u64().unwrap(), 8192);
+        assert_eq!(config["maxOutputTokens"].as_u64().unwrap(), 16384);
     }
 
     #[test]
