@@ -63,6 +63,66 @@ fn extract_text_from_response(response_body: &str) -> Result<String, String> {
     Ok(text.to_string())
 }
 
+/// Fetch available Gemini models filtered for generateContent support.
+///
+/// Returns model IDs (e.g. "gemini-2.5-flash") sorted by name,
+/// filtered to only include Gemini models that support generateContent.
+pub async fn list_models(api_key: &str) -> Result<Vec<(String, String)>, String> {
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models?key={}&pageSize=100",
+        api_key
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let response = client.get(&url).send().await
+        .map_err(|e| format!("Failed to fetch Gemini models: {}", e))?;
+
+    let status = response.status();
+    let body = response.text().await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("Gemini API {}: {}", status.as_u16(), body));
+    }
+
+    let value: Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse models JSON: {}", e))?;
+
+    let mut models: Vec<(String, String)> = value
+        .get("models")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|model| {
+                    let name = model.get("name")?.as_str()?;
+                    let display = model.get("displayName")?.as_str()?;
+                    let methods = model.get("supportedGenerationMethods")?.as_array()?;
+
+                    // Must support generateContent
+                    let supports_gen = methods.iter()
+                        .any(|m| m.as_str() == Some("generateContent"));
+                    if !supports_gen { return None; }
+
+                    // Must be a Gemini model (not PaLM, embedding, etc.)
+                    if !name.contains("gemini") { return None; }
+
+                    // Extract model ID: "models/gemini-2.5-flash" → "gemini-2.5-flash"
+                    let id = name.strip_prefix("models/").unwrap_or(name);
+
+                    Some((id.to_string(), display.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    models.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(models)
+}
+
 /// Analyze text using the Google Gemini API.
 ///
 /// 1. Builds system and user prompts from mode/level/options
