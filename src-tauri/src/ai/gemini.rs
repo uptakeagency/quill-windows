@@ -7,7 +7,7 @@ use super::parser;
 use super::prompts;
 
 /// Default Gemini model.
-pub const DEFAULT_MODEL: &str = "gemini-2.5-flash";
+pub const DEFAULT_MODEL: &str = "gemini-3.1-flash-lite-preview";
 
 /// Request timeout in seconds.
 const TIMEOUT_SECS: u64 = 30;
@@ -207,7 +207,7 @@ mod tests {
         let url = build_url(DEFAULT_MODEL);
         assert_eq!(
             url,
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent"
         );
     }
 

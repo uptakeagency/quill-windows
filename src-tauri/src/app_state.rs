@@ -31,7 +31,7 @@ impl Default for AppState {
             target_language: Mutex::new("English".to_string()),
             tech_state: Mutex::new(TechDictionaryState::new()),
             ai_provider: Mutex::new("gemini".to_string()),
-            gemini_model: Mutex::new("gemini-2.5-flash".to_string()),
+            gemini_model: Mutex::new("gemini-3.1-flash-lite-preview".to_string()),
             claude_model: Mutex::new("claude-sonnet-4-20250514".to_string()),
             hotkey: Mutex::new("Ctrl+Shift+Q".to_string()),
         }
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn default_gemini_model() {
         let state = AppState::default();
-        assert_eq!(*state.gemini_model.lock().unwrap(), "gemini-2.5-flash");
+        assert_eq!(*state.gemini_model.lock().unwrap(), "gemini-3.1-flash-lite-preview");
     }
 
     #[test]

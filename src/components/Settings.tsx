@@ -7,7 +7,7 @@ type AiProvider = 'gemini' | 'claude';
 export default function Settings() {
   // Form state
   const [aiProvider, setAiProvider] = useState<AiProvider>('gemini');
-  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+  const [geminiModel, setGeminiModel] = useState('gemini-3.1-flash-lite-preview');
   const [claudeModel, setClaudeModel] = useState('claude-sonnet-4-20250514');
   const [nativeLanguage, setNativeLanguage] = useState('Turkish');
   const [targetLanguage, setTargetLanguage] = useState('English');
