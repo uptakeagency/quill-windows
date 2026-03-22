@@ -51,13 +51,13 @@ export interface AnalysisResult {
   resources?: ResourceLink[];
   alternatives?: Alternative[];
   vocabulary: VocabularyCard[];
+  levels?: Record<string, string>;
 }
 
-// Matches Rust TechExplanation
+// Tech dictionary entry with all levels pre-fetched
 export interface TechExplanation {
   term: string;
-  level: ExplanationLevel;
-  explanation: string;
+  levels: Record<string, string>;
   tldr?: string;
   resources?: ResourceLink[];
   alternatives?: Alternative[];

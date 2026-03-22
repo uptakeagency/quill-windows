@@ -1,10 +1,21 @@
 use std::collections::HashMap;
+use std::io::Write;
 
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::models::{Alternative, AnalysisMode, AnalysisResult, ResourceLink, TextChange, VocabularyCard};
+
+/// Append debug message to a log file (for debugging).
+#[allow(dead_code)]
+pub fn debug_log(_msg: &str) {
+    // Disabled in production. Enable by uncommenting:
+    // if let Ok(mut f) = std::fs::OpenOptions::new()
+    //     .create(true).append(true)
+    //     .open(std::env::temp_dir().join("quill-debug.log"))
+    // { let _ = writeln!(f, "{}", _msg); }
+}
 
 /// Private struct matching the expected AI JSON output.
 /// Unlike `AnalysisResult`, this omits `mode` and `original`.
@@ -43,18 +54,31 @@ struct AIResponse {
 pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> AnalysisResult {
     let cleaned = extract_json(raw);
 
+    debug_log(&format!("\n=== NEW PARSE ({} chars) ===\n{}", raw.len(), raw));
+    debug_log(&format!("[QUILL] Cleaned JSON ({} chars, first 200): {:?}", cleaned.len(), &cleaned[..cleaned.len().min(200)]));
+
     // Layer 2: Try direct deserialization
     let mut result = try_decode(&cleaned, mode, original_text);
+    debug_log(&format!("[QUILL] Layer 2 (strict serde): {}", if result.is_some() { "OK" } else { "FAIL" }));
+
+    if let Some(ref r) = result {
+        debug_log(&format!("[QUILL] Layer 2 levels keys: {:?}", r.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
+    }
 
     // Layer 3 & 4: Sanitize and retry
     if result.is_none() {
         let sanitized = sanitize_json(&cleaned);
         if sanitized != cleaned {
             result = try_decode(&sanitized, mode, original_text);
+            debug_log(&format!("[QUILL] Layer 3 (sanitized serde): {}", if result.is_some() { "OK" } else { "FAIL" }));
         }
         // Layer 4: Lenient Value-based parsing
         if result.is_none() {
             result = try_decode_lenient(&sanitized, mode, original_text);
+            debug_log(&format!("[QUILL] Layer 4 (lenient): {}", if result.is_some() { "OK" } else { "FAIL" }));
+            if let Some(ref r) = result {
+                debug_log(&format!("[QUILL] Layer 4 levels keys: {:?}", r.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
+            }
         }
     }
 
@@ -94,6 +118,9 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
         }
     }
 
+    debug_log(&format!("[QUILL] FINAL levels keys: {:?}", final_result.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
+    debug_log(&format!("[QUILL] FINAL explanation present: {}", final_result.explanation.is_some()));
+
     // Mode-specific field filtering
     if final_result.mode != AnalysisMode::Improve {
         final_result.vocabulary = vec![];
@@ -107,22 +134,20 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
 
 /// Extract JSON content from a string, stripping markdown fences or finding matching braces.
 fn extract_json(text: &str) -> String {
-    // Try markdown code fences: ```json ... ``` or ```JSON ... ```
+    // If wrapped in markdown fences, skip the opening fence then use brace matching.
+    // We cannot use fence-end matching because the JSON content itself may contain
+    // ``` markers (e.g. code blocks inside "samples" level explanations).
     let fence_start = Regex::new(r"```(?:json|JSON)?\s*\n?").unwrap();
-    let fence_end = Regex::new(r"\n?\s*```").unwrap();
+    let content = if let Some(start_match) = fence_start.find(text) {
+        &text[start_match.end()..]
+    } else {
+        text
+    };
 
-    if let Some(start_match) = fence_start.find(text) {
-        let after_start = start_match.end();
-        if let Some(end_match) = fence_end.find(&text[after_start..]) {
-            let json_content = &text[after_start..after_start + end_match.start()];
-            return json_content.to_string();
-        }
-    }
-
-    // Try matching braces from first {
-    if let Some(start) = text.find('{') {
-        if let Some(end) = find_matching_brace(text, start) {
-            return text[start..=end].to_string();
+    // Use brace matching (handles ``` inside JSON strings correctly)
+    if let Some(start) = content.find('{') {
+        if let Some(end) = find_matching_brace(content, start) {
+            return content[start..=end].to_string();
         }
     }
 
@@ -275,13 +300,24 @@ fn normalize_escapes(text: &str) -> String {
 
 /// Try to deserialize the JSON string directly into `AIResponse`, then convert to `AnalysisResult`.
 fn try_decode(json: &str, mode: AnalysisMode, original_text: &str) -> Option<AnalysisResult> {
-    let response: AIResponse = serde_json::from_str(json).ok()?;
-    Some(ai_response_to_result(response, mode, original_text))
+    match serde_json::from_str::<AIResponse>(json) {
+        Ok(response) => Some(ai_response_to_result(response, mode, original_text)),
+        Err(e) => {
+            debug_log(&format!("[QUILL] serde error: {}", e));
+            None
+        }
+    }
 }
 
 /// Lenient parsing using `serde_json::Value` with manual field extraction.
 fn try_decode_lenient(json: &str, mode: AnalysisMode, original_text: &str) -> Option<AnalysisResult> {
-    let value: Value = serde_json::from_str(json).ok()?;
+    let value: Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(e) => {
+            debug_log(&format!("[QUILL] lenient Value parse error: {}", e));
+            return None;
+        }
+    };
     let obj = value.as_object()?;
 
     let corrected = obj
@@ -393,7 +429,20 @@ fn try_decode_lenient(json: &str, mode: AnalysisMode, original_text: &str) -> Op
             .map(|lvls| {
                 lvls.iter()
                     .filter_map(|(k, v)| {
-                        v.as_str().map(|s| (k.clone(), s.to_string()))
+                        // String value → use directly
+                        if let Some(s) = v.as_str() {
+                            return Some((k.clone(), s.to_string()));
+                        }
+                        // Array of strings → join as bullet list
+                        if let Some(arr) = v.as_array() {
+                            let items: Vec<String> = arr.iter()
+                                .filter_map(|item| item.as_str().map(|s| format!("- {}", s)))
+                                .collect();
+                            if !items.is_empty() {
+                                return Some((k.clone(), items.join("\n")));
+                            }
+                        }
+                        None
                     })
                     .collect::<HashMap<String, String>>()
             });

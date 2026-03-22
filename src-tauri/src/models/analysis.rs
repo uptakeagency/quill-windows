@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::mode::AnalysisMode;
@@ -16,6 +18,10 @@ pub struct AnalysisResult {
     pub alternatives: Option<Vec<Alternative>>,
     #[serde(default)]
     pub vocabulary: Vec<VocabularyCard>,
+    /// All explanation levels in one response (TechExplain combined mode).
+    /// Keys: "eli5", "eli15", "professional", "samples", "resources", "alternatives"
+    #[serde(default)]
+    pub levels: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +86,7 @@ mod tests {
             resources: None,
             alternatives: None,
             vocabulary: vec![],
+            levels: None,
         };
 
         let json = serde_json::to_value(&result).unwrap();

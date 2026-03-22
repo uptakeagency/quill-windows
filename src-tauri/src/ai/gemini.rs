@@ -176,6 +176,20 @@ pub async fn analyze(
         return Err(format!("Gemini API {}: {}", status.as_u16(), response_body));
     }
 
+    // Log finish reason for debugging truncation issues
+    if let Ok(v) = serde_json::from_str::<Value>(&response_body) {
+        let finish = v.get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("finishReason"))
+            .and_then(|r| r.as_str())
+            .unwrap_or("UNKNOWN");
+        let token_count = v.get("usageMetadata")
+            .and_then(|u| u.get("candidatesTokenCount"))
+            .and_then(|t| t.as_u64())
+            .unwrap_or(0);
+        parser::debug_log(&format!("[QUILL] Gemini finishReason={}, outputTokens={}", finish, token_count));
+    }
+
     let ai_text = extract_text_from_response(&response_body)?;
 
     Ok(parser::parse_response(&ai_text, mode, text))
