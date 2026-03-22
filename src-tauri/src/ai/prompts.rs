@@ -127,90 +127,36 @@ Respond ONLY with valid JSON in this exact format:
 }
 Do not add any text outside the JSON.";
 
-fn tech_explain_system(level: ExplanationLevel) -> String {
-    match level {
-        ExplanationLevel::Alternatives => TECH_EXPLAIN_ALTERNATIVES_SYSTEM.to_string(),
-        ExplanationLevel::Samples => TECH_EXPLAIN_SAMPLES_SYSTEM.to_string(),
-        _ => format!(
-            "\
-You are a senior software engineer explaining technical terms, commands, and concepts.
-The user will specify their native language. Write your ENTIRE explanation in the user's native language. Only keep the technical term itself and code snippets in English.
-Start your explanation with the term followed by its native language translation in parentheses, e.g. \"**database** (veritaban\u{0131})\".
-
-Explanation style: {}
-
-CRITICAL: Keep the explanation concise \u{2014} maximum 150 words. Be brief and to the point.
-
-Cover:
-1. What it is (1-2 sentences)
-2. How it's used (1-2 sentences)
-3. A quick example
-4. Related concepts
-
-IMPORTANT: When you mention other technical terms in your explanation, wrap them in [[double brackets]]. For example: \"Bir [[REST API]], bir [[server]] ile ileti\u{015f}im kurmak i\u{00e7}in [[HTTP]] methodlar\u{0131}n\u{0131} kullan\u{0131}r.\" Mark 3-8 terms per explanation. Only mark terms that would benefit from their own explanation.
-
-Also include 2-4 resource links: official documentation, tutorials, or authoritative references for this term. Prefer official sites (e.g. python.org for Python, developer.mozilla.org for web APIs, docs.docker.com for Docker). Use well-known, stable URLs only.
-
-Respond ONLY with valid JSON in this exact format (no markdown fences, no extra text):
-{{
-  \"corrected\": \"the original term unchanged\",
-  \"changes\": [],
-  \"tldr\": \"One-sentence summary of what this term means, in the user's native language. Maximum 15 words.\",
-  \"explanation\": \"**term** (native translation)\\n\\nExplanation in the user's native language with [[technical terms]] in double brackets.\",
-  \"resources\": [{{\"title\": \"Official Docs\", \"url\": \"https://example.com/docs\"}}, {{\"title\": \"Tutorial\", \"url\": \"https://example.com/tutorial\"}}]
-}}",
-            level.prompt_instruction()
-        ),
-    }
+fn tech_explain_system(_level: ExplanationLevel) -> String {
+    TECH_EXPLAIN_COMBINED_SYSTEM.to_string()
 }
 
-const TECH_EXPLAIN_SAMPLES_SYSTEM: &str = "\
-You are a senior software engineer providing practical code examples.
-The user will specify their native language. Write comments and explanations in the user's native language. Keep code in English.
+const TECH_EXPLAIN_COMBINED_SYSTEM: &str = "\
+You are a senior software engineer creating a technical dictionary entry.
+The user will specify their native language. Write ALL explanations in that language. Keep only technical terms and code in English.
 
-Provide 2-3 practical, runnable code examples showing how this term/concept is used in real code.
-Go from simple to advanced. Each example should have:
-- A short heading (e.g. \"### Basic Usage\", \"### Advanced: With Error Handling\")
-- A code block with the snippet
-- A 1-2 sentence explanation of what the code does, in the user's native language
+Return a JSON with a \"levels\" object containing these 6 keys:
 
-IMPORTANT: When you mention other technical terms, wrap them in [[double brackets]].
+\"eli5\": Simple analogy for a 5-year-old. NO CODE, no jargon. Max 80 words.
+\"eli15\": Explanation for a teenager. NO CODE. Use some technical terms. Max 120 words.
+\"professional\": For a senior dev. Precise, trade-offs, patterns. Max 150 words.
+\"samples\": 2-3 code examples. MUST use fenced code blocks with \\n between EVERY line: \"```python\\nline1\\nline2\\n```\"
+\"resources\": 3-5 bullet points: what to learn, pitfalls, related concepts.
+\"alternatives\": 1-2 sentences about what this is and why look for alternatives.
 
-Respond ONLY with valid JSON in this exact format (no markdown fences, no extra text):
-{
-  \"corrected\": \"the original term unchanged\",
-  \"changes\": [],
-  \"tldr\": \"One-sentence summary of what this term means, in the user's native language. Maximum 15 words.\",
-  \"explanation\": \"**term** (native translation)\\n\\n### Basic Usage\\n```language\\ncode here\\n```\\nExplanation of this example.\\n\\n### Advanced\\n```language\\nmore code\\n```\\nExplanation.\",
-  \"resources\": []
-}";
+RULES:
+- eli5 and eli15 MUST NOT contain any code or code blocks.
+- samples MUST use ```language\\n...\\n``` with \\n between every statement.
+- Wrap technical terms in [[double brackets]] in all levels.
+- Start each level (except samples) with **term** (native_translation).
 
-const TECH_EXPLAIN_ALTERNATIVES_SYSTEM: &str = "\
-You are a senior software engineer comparing technical tools and technologies.
-The user will specify their native language. Write ALL descriptions, pros, and cons in the user's native language. Keep tool/library names in English.
+Also at root level provide:
+- \"tldr\": max 15-word summary
+- \"resources\": 2-4 [{\"title\": \"...\", \"url\": \"...\"}] official links
+- \"alternatives\": 3-5 [{\"name\": \"...\", \"url\": \"...\", \"description\": \"...\", \"pros\": [...], \"cons\": [...]}]
 
-For the given term, list 3-5 alternatives or competitors. For each alternative provide:
-- name: The tool/library/technology name (English)
-- url: Official website or documentation URL. Use well-known, stable URLs only (e.g. https://react.dev, https://vuejs.org)
-- description: One-line description of what it is (native language)
-- pros: 1-2 key advantages (native language)
-- cons: 1-2 key disadvantages (native language)
-
-Also include a brief explanation of the original term for context.
-
-IMPORTANT: When you mention other technical terms in your explanation, wrap them in [[double brackets]].
-
-Respond ONLY with valid JSON in this exact format (no markdown fences, no extra text):
-{
-  \"corrected\": \"the original term unchanged\",
-  \"changes\": [],
-  \"tldr\": \"One-sentence summary of what this term means, in the user's native language. Maximum 15 words.\",
-  \"explanation\": \"**term** (native translation) \u{2014} brief context about what this tool does and why you might look for alternatives.\",
-  \"resources\": [],
-  \"alternatives\": [
-    {\"name\": \"AlternativeName\", \"url\": \"https://example.com\", \"description\": \"What it is in native language\", \"pros\": [\"Key advantage 1\", \"Key advantage 2\"], \"cons\": [\"Key disadvantage 1\"]}
-  ]
-}";
+Respond with ONLY valid JSON, no markdown fences:
+{\"corrected\": \"term\", \"changes\": [], \"tldr\": \"...\", \"levels\": {\"eli5\": \"...\", \"eli15\": \"...\", \"professional\": \"...\", \"samples\": \"...\", \"resources\": \"...\", \"alternatives\": \"...\"}, \"resources\": [...], \"alternatives\": [...]}";
 
 #[cfg(test)]
 mod tests {
@@ -237,52 +183,29 @@ mod tests {
     }
 
     #[test]
-    fn system_prompt_tech_explain_default_level() {
+    fn system_prompt_tech_explain_combined_contains_all_levels() {
         let prompt = system_prompt(AnalysisMode::TechExplain, None);
-        // Default level is Eli15
-        assert!(prompt.contains("senior software engineer"), "TechExplain system prompt should mention 'senior software engineer'");
-        assert!(prompt.contains(ExplanationLevel::Eli15.prompt_instruction()));
+        // Combined prompt contains instructions for all levels
+        assert!(prompt.contains("senior software engineer"), "Should mention role");
         assert!(prompt.contains("[[double brackets]]"), "Should mention double bracket notation");
+        assert!(prompt.contains("\"levels\""), "Should use levels object");
+        // All level instructions present
+        assert!(prompt.contains("eli5"), "Should contain eli5 level");
+        assert!(prompt.contains("eli15"), "Should contain eli15 level");
+        assert!(prompt.contains("professional"), "Should contain professional level");
+        assert!(prompt.contains("samples"), "Should contain samples level");
+        assert!(prompt.contains("resources"), "Should contain resources level");
+        assert!(prompt.contains("alternatives"), "Should contain alternatives level");
     }
 
     #[test]
-    fn system_prompt_tech_explain_eli5() {
-        let prompt = system_prompt(AnalysisMode::TechExplain, Some(ExplanationLevel::Eli5));
-        assert!(prompt.contains(ExplanationLevel::Eli5.prompt_instruction()));
-        assert!(prompt.contains("senior software engineer"));
-    }
-
-    #[test]
-    fn system_prompt_tech_explain_professional() {
-        let prompt = system_prompt(AnalysisMode::TechExplain, Some(ExplanationLevel::Professional));
-        assert!(prompt.contains(ExplanationLevel::Professional.prompt_instruction()));
-    }
-
-    #[test]
-    fn system_prompt_tech_explain_samples_uses_dedicated_prompt() {
-        let prompt = system_prompt(AnalysisMode::TechExplain, Some(ExplanationLevel::Samples));
-        // Samples has its own dedicated system prompt, NOT the default template
-        assert!(prompt.contains("practical code examples"), "Samples should use dedicated prompt with 'practical code examples'");
-        // Should NOT contain the default template's "maximum 150 words"
-        assert!(!prompt.contains("maximum 150 words"), "Samples should NOT use the default template");
-    }
-
-    #[test]
-    fn system_prompt_tech_explain_alternatives_uses_dedicated_prompt() {
-        let prompt = system_prompt(AnalysisMode::TechExplain, Some(ExplanationLevel::Alternatives));
-        // Alternatives has its own dedicated system prompt
-        assert!(prompt.contains("comparing technical tools"), "Alternatives should use dedicated prompt with 'comparing technical tools'");
-        // Should NOT contain the default template's "maximum 150 words"
-        assert!(!prompt.contains("maximum 150 words"), "Alternatives should NOT use the default template");
-    }
-
-    #[test]
-    fn system_prompt_tech_explain_resources_uses_default_template() {
-        let prompt = system_prompt(AnalysisMode::TechExplain, Some(ExplanationLevel::Resources));
-        // Resources uses the default template (not a dedicated prompt)
-        assert!(prompt.contains("senior software engineer"));
-        assert!(prompt.contains(ExplanationLevel::Resources.prompt_instruction()));
-        assert!(prompt.contains("maximum 150 words"));
+    fn system_prompt_tech_explain_same_for_any_level() {
+        // Combined prompt is the same regardless of level parameter
+        let prompt_none = system_prompt(AnalysisMode::TechExplain, None);
+        let prompt_eli5 = system_prompt(AnalysisMode::TechExplain, Some(ExplanationLevel::Eli5));
+        let prompt_pro = system_prompt(AnalysisMode::TechExplain, Some(ExplanationLevel::Professional));
+        assert_eq!(prompt_none, prompt_eli5);
+        assert_eq!(prompt_none, prompt_pro);
     }
 
     #[test]

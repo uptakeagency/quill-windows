@@ -452,7 +452,7 @@ mod tests {
         assert!(body["system_instruction"]["parts"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("5 years old"));
+            .contains("5-year-old"));
         assert!(body["contents"][0]["parts"][0]["text"]
             .as_str()
             .unwrap()

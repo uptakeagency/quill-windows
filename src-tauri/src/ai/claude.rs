@@ -404,7 +404,7 @@ mod tests {
         assert!(body["system"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("5 years old"));
+            .contains("5-year-old"));
         assert!(body["messages"][0]["content"]
             .as_str()
             .unwrap()
