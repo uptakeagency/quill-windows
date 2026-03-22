@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
@@ -16,6 +18,17 @@ struct AIResponse {
     tldr: Option<String>,
     resources: Option<Vec<ResourceLink>>,
     alternatives: Option<Vec<Alternative>>,
+    #[serde(default)]
+    levels: Option<HashMap<String, String>>,
+    // Top-level level fields (AI may return these instead of nested "levels" object)
+    eli5: Option<String>,
+    eli15: Option<String>,
+    professional: Option<String>,
+    samples: Option<String>,
+    #[serde(rename = "resources_explanation")]
+    resources_text: Option<String>,
+    #[serde(rename = "alternatives_text")]
+    alternatives_text: Option<String>,
 }
 
 /// Parse a raw AI response string into an `AnalysisResult`.
@@ -58,6 +71,7 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
                 resources: None,
                 alternatives: None,
                 vocabulary: vec![],
+                levels: None,
             });
         }
     }
@@ -71,6 +85,13 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
     }
     if let Some(ref tldr) = final_result.tldr {
         final_result.tldr = Some(normalize_escapes(tldr));
+    }
+
+    // Normalize escapes in all level explanations
+    if let Some(ref mut levels) = final_result.levels {
+        for value in levels.values_mut() {
+            *value = normalize_escapes(value);
+        }
     }
 
     // Mode-specific field filtering
@@ -356,6 +377,67 @@ fn try_decode_lenient(json: &str, mode: AnalysisMode, original_text: &str) -> Op
                 .collect()
         });
 
+    // Try nested "levels" object first, then fall back to top-level level fields.
+    // AI may return either: {"levels": {"eli5": "...", ...}} or {"eli5": "...", ...}
+    // Only collect string-valued top-level fields (skip "resources" and "alternatives"
+    // which are arrays, not level text)
+    let text_level_keys = ["eli5", "eli15", "professional", "samples"];
+    // These keys may be strings (level text) or arrays (structured data) — only take strings
+    let ambiguous_keys = ["resources", "alternatives"];
+
+    let levels = {
+        // Option 1: nested "levels" object
+        let nested = obj
+            .get("levels")
+            .and_then(|v| v.as_object())
+            .map(|lvls| {
+                lvls.iter()
+                    .filter_map(|(k, v)| {
+                        v.as_str().map(|s| (k.clone(), s.to_string()))
+                    })
+                    .collect::<HashMap<String, String>>()
+            });
+
+        if nested.as_ref().map_or(true, |m| m.is_empty()) {
+            // Option 2: top-level fields (eli5, eli15, professional, samples, etc.)
+            let mut top_level: HashMap<String, String> = text_level_keys
+                .iter()
+                .filter_map(|key| {
+                    obj.get(*key)
+                        .and_then(|v| v.as_str())
+                        .map(|s| (key.to_string(), s.to_string()))
+                })
+                .collect();
+
+            // For ambiguous keys, only take if they're strings (not arrays)
+            for key in &ambiguous_keys {
+                if let Some(Value::String(s)) = obj.get(*key) {
+                    top_level.insert(key.to_string(), s.clone());
+                }
+            }
+
+            // Also check "resources_explanation" / "alternatives_text" variants
+            if let Some(s) = obj.get("resources_explanation").and_then(|v| v.as_str()) {
+                top_level.insert("resources".to_string(), s.to_string());
+            }
+            if let Some(s) = obj.get("alternatives_text").and_then(|v| v.as_str()) {
+                top_level.insert("alternatives".to_string(), s.to_string());
+            }
+            if let Some(s) = obj.get("alternatives_context").and_then(|v| v.as_str()) {
+                top_level.insert("alternatives".to_string(), s.to_string());
+            }
+
+            if top_level.is_empty() { nested } else { Some(top_level) }
+        } else {
+            nested
+        }
+    };
+
+    // Use eli15 from levels as fallback explanation
+    let explanation = explanation.or_else(|| {
+        levels.as_ref().and_then(|l| l.get("eli15").cloned())
+    });
+
     Some(AnalysisResult {
         mode,
         original: original_text.to_string(),
@@ -366,6 +448,7 @@ fn try_decode_lenient(json: &str, mode: AnalysisMode, original_text: &str) -> Op
         resources,
         alternatives,
         vocabulary,
+        levels,
     })
 }
 
@@ -383,16 +466,35 @@ fn extract_string_or_array(value: Option<&Value>) -> Vec<String> {
 
 /// Convert an `AIResponse` into an `AnalysisResult`, filling in mode and original.
 fn ai_response_to_result(response: AIResponse, mode: AnalysisMode, original_text: &str) -> AnalysisResult {
+    // Build levels from nested object or top-level fields
+    let levels = if response.levels.as_ref().map_or(true, |m| m.is_empty()) {
+        // Collect top-level level fields
+        let mut map = HashMap::new();
+        if let Some(v) = response.eli5 { map.insert("eli5".to_string(), v); }
+        if let Some(v) = response.eli15 { map.insert("eli15".to_string(), v); }
+        if let Some(v) = response.professional { map.insert("professional".to_string(), v); }
+        if let Some(v) = response.samples { map.insert("samples".to_string(), v); }
+        if let Some(v) = response.resources_text { map.insert("resources".to_string(), v); }
+        if let Some(v) = response.alternatives_text { map.insert("alternatives".to_string(), v); }
+        if map.is_empty() { response.levels } else { Some(map) }
+    } else {
+        response.levels
+    };
+
+    let explanation = response.explanation.or_else(|| {
+        levels.as_ref().and_then(|l| l.get("eli15").cloned())
+    });
     AnalysisResult {
         mode,
         original: original_text.to_string(),
         corrected: response.corrected.unwrap_or_else(|| original_text.to_string()),
         changes: response.changes,
-        explanation: response.explanation,
+        explanation,
         tldr: response.tldr,
         resources: response.resources,
         alternatives: response.alternatives,
         vocabulary: response.vocabulary.unwrap_or_default(),
+        levels,
     }
 }
 
@@ -421,6 +523,7 @@ fn fallback_result(text: &str, mode: AnalysisMode, original_text: &str) -> Analy
         resources: None,
         alternatives: None,
         vocabulary: vec![],
+        levels: None,
     }
 }
 
