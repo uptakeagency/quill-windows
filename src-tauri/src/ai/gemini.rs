@@ -110,6 +110,13 @@ pub async fn list_models(api_key: &str) -> Result<Vec<(String, String)>, String>
                     // Must be a Gemini model (not PaLM, embedding, etc.)
                     if !name.contains("gemini") { return None; }
 
+                    // Skip non-text models (image, TTS, robotics, vision, computer-use)
+                    let skip_keywords = ["image", "banana", "tts", "robotics", "computer-use", "customtools"];
+                    let name_lower = name.to_lowercase();
+                    if skip_keywords.iter().any(|kw| name_lower.contains(kw)) {
+                        return None;
+                    }
+
                     // Extract model ID: "models/gemini-2.5-flash" → "gemini-2.5-flash"
                     let id = name.strip_prefix("models/").unwrap_or(name);
 
