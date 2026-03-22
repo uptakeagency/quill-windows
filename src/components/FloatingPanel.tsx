@@ -173,27 +173,39 @@ export default function FloatingPanel() {
             {/* Tech Dictionary mode */}
             {isTechMode && currentExplanation && (
               <>
-                {levelContent ? (
-                  <>
-                    <MarkdownView
-                      content={levelContent}
-                      onTermClick={handleTermClick}
-                    />
-                    {level === 'alternatives' && currentExplanation.alternatives && currentExplanation.alternatives.length > 0 && (
-                      <AlternativesView
-                        alternatives={currentExplanation.alternatives}
-                        onTermClick={handleTermClick}
-                      />
-                    )}
-                    {level === 'resources' && currentExplanation.resources && currentExplanation.resources.length > 0 && (
-                      <ResourcesView resources={currentExplanation.resources} />
-                    )}
-                  </>
-                ) : (
-                  <div className="text-sm text-gray-500 py-8 text-center">
-                    This level is not available for the current term.
-                  </div>
-                )}
+                {(() => {
+                  const hasAltsData = level === 'alternatives' && currentExplanation.alternatives && currentExplanation.alternatives.length > 0;
+                  const hasResData = level === 'resources' && currentExplanation.resources && currentExplanation.resources.length > 0;
+                  const hasContent = levelContent || hasAltsData || hasResData;
+
+                  if (!hasContent) {
+                    return (
+                      <div className="text-sm text-gray-500 py-8 text-center">
+                        This level is not available for the current term.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <>
+                      {levelContent && (
+                        <MarkdownView
+                          content={levelContent}
+                          onTermClick={handleTermClick}
+                        />
+                      )}
+                      {hasAltsData && (
+                        <AlternativesView
+                          alternatives={currentExplanation.alternatives!}
+                          onTermClick={handleTermClick}
+                        />
+                      )}
+                      {hasResData && (
+                        <ResourcesView resources={currentExplanation.resources!} />
+                      )}
+                    </>
+                  );
+                })()}
               </>
             )}
 

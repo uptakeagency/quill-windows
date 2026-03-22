@@ -1,10 +1,19 @@
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::models::{Alternative, AnalysisMode, AnalysisResult, ResourceLink, TextChange, VocabularyCard};
+
+static FENCE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"```(?:json|JSON)?\s*\n?").unwrap()
+});
+
+static EXPLANATION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#""explanation"\s*:\s*""#).unwrap()
+});
 
 /// Log a debug message for parser diagnostics.
 #[allow(dead_code)]
@@ -123,25 +132,37 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
 }
 
 /// Extract JSON content from a string, stripping markdown fences or finding matching braces.
+///
+/// Strategy: try brace matching from multiple starting points (original text +
+/// text after each markdown fence), then pick the largest result. This handles:
+/// - Pure JSON: finds the full object directly
+/// - Fenced JSON: strips fence, finds JSON after it
+/// - Commentary with `{code}` before fenced JSON: skips small code snippets
+/// - JSON containing ``` inside string values: original text yields the full object
 fn extract_json(text: &str) -> String {
-    // If wrapped in markdown fences, skip the opening fence then use brace matching.
-    // We cannot use fence-end matching because the JSON content itself may contain
-    // ``` markers (e.g. code blocks inside "samples" level explanations).
-    let fence_start = Regex::new(r"```(?:json|JSON)?\s*\n?").unwrap();
-    let content = if let Some(start_match) = fence_start.find(text) {
-        &text[start_match.end()..]
-    } else {
-        text
-    };
+    // Build candidate starting points: original text + text after each fence
+    let mut candidates: Vec<&str> = vec![text];
+    let mut search = text;
+    while let Some(m) = FENCE_RE.find(search) {
+        let after = &search[m.end()..];
+        candidates.push(after);
+        search = after;
+    }
 
-    // Use brace matching (handles ``` inside JSON strings correctly)
-    if let Some(start) = content.find('{') {
-        if let Some(end) = find_matching_brace(content, start) {
-            return content[start..=end].to_string();
+    // Try brace matching from the first { in each candidate, keep the longest
+    let mut best: Option<String> = None;
+    for content in candidates {
+        if let Some(start) = content.find('{') {
+            if let Some(end) = find_matching_brace(content, start) {
+                let matched = &content[start..=end];
+                if best.as_ref().map_or(true, |b| matched.len() > b.len()) {
+                    best = Some(matched.to_string());
+                }
+            }
         }
     }
 
-    text.to_string()
+    best.unwrap_or_else(|| text.to_string())
 }
 
 /// Find the index of the closing brace that matches the opening brace at `start`.
@@ -236,8 +257,7 @@ fn sanitize_json(text: &str) -> String {
 
 /// Extract the "explanation" field value from malformed JSON using regex.
 fn extract_explanation_field(text: &str) -> Option<String> {
-    let pattern = Regex::new(r#""explanation"\s*:\s*""#).unwrap();
-    let mat = pattern.find(text)?;
+    let mat = EXPLANATION_RE.find(text)?;
     let start = mat.end();
 
     let bytes = text.as_bytes();
@@ -537,12 +557,67 @@ fn ai_response_to_result(response: AIResponse, mode: AnalysisMode, original_text
     }
 }
 
+/// Strip JSON structural syntax from text, leaving only human-readable string values.
+/// Used when JSON parsing fails but we still want to show meaningful content.
+fn strip_json_to_text(text: &str) -> String {
+    // Extract all string values from the text using a simple state machine
+    let mut values = Vec::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            // Collect string content until closing quote
+            let mut value = String::new();
+            let mut escaped = false;
+            for c in chars.by_ref() {
+                if escaped {
+                    match c {
+                        'n' => value.push('\n'),
+                        't' => value.push('\t'),
+                        '"' => value.push('"'),
+                        '\\' => value.push('\\'),
+                        _ => { value.push('\\'); value.push(c); }
+                    }
+                    escaped = false;
+                    continue;
+                }
+                if c == '\\' { escaped = true; continue; }
+                if c == '"' { break; }
+                value.push(c);
+            }
+            // Only keep values that look like human text, not JSON keys
+            // (keys like "corrected", "explanation" are < 15 chars) or bare URLs
+            let trimmed = value.trim();
+            if trimmed.len() > 15 && !trimmed.starts_with("http") {
+                values.push(trimmed.to_string());
+            }
+        }
+    }
+    if values.is_empty() {
+        // No string values found, return original text stripped of JSON syntax
+        text.chars()
+            .filter(|c| !matches!(c, '{' | '}' | '[' | ']'))
+            .collect::<String>()
+            .trim()
+            .to_string()
+    } else {
+        values.join("\n\n")
+    }
+}
+
 /// Fallback result when all parsing fails.
 /// For explanation modes (TechExplain, Translate): raw text becomes explanation.
 /// For Improve mode: raw text becomes corrected text.
 fn fallback_result(text: &str, mode: AnalysisMode, original_text: &str) -> AnalysisResult {
     let trimmed = text.trim();
     let is_explanation_mode = mode == AnalysisMode::TechExplain || mode == AnalysisMode::Translate;
+
+    // For explanation modes, strip JSON structure from fallback text
+    // to prevent raw JSON from appearing in the UI
+    let explanation_text = if is_explanation_mode && trimmed.contains('{') {
+        strip_json_to_text(trimmed)
+    } else {
+        trimmed.to_string()
+    };
 
     AnalysisResult {
         mode,
@@ -554,7 +629,7 @@ fn fallback_result(text: &str, mode: AnalysisMode, original_text: &str) -> Analy
         },
         changes: vec![],
         explanation: if is_explanation_mode {
-            Some(trimmed.to_string())
+            Some(explanation_text)
         } else {
             None
         },
@@ -830,6 +905,39 @@ Hope that helps!"#;
         let input = r#"{"code": "if (x) { return; }", "name": "test"}"#;
         let result = extract_json(input);
         assert_eq!(result, input);
+    }
+
+    #[test]
+    fn extract_json_ignores_backticks_inside_json_strings() {
+        // JSON contains ``` inside a string value (code samples) — must NOT
+        // be treated as a markdown fence wrapping the JSON.
+        let json = serde_json::json!({
+            "levels": {
+                "samples": "### Example\n```js\nfoo({ bar: 1 });\n```"
+            }
+        }).to_string();
+        let result = extract_json(&json);
+        assert_eq!(result, json, "should return entire JSON, not a substring from inside the code sample");
+    }
+
+    #[test]
+    fn extract_json_commentary_with_braces_before_fenced_json() {
+        // AI puts commentary with code snippets (containing {}) before the JSON fence.
+        // extract_json should find the real JSON (largest match), not the code snippet.
+        let input = "TypeScript allows types like { id: number; name: string; }\n\n```json\n{\"tldr\": \"Type system\", \"levels\": {\"eli5\": \"Simple\", \"eli15\": \"Medium\"}}\n```";
+        let result = extract_json(input);
+        assert!(result.contains("\"tldr\""), "should extract the full JSON, not the TypeScript snippet");
+        assert!(result.contains("\"levels\""), "should contain levels");
+        assert!(!result.contains("id: number"), "should NOT contain the TypeScript code snippet");
+    }
+
+    #[test]
+    fn extract_json_handles_fence_before_json() {
+        // Real markdown fence wrapping JSON should still be stripped
+        let input = "```json\n{\"key\": \"value with ```code``` inside\"}\n```";
+        let result = extract_json(input);
+        assert!(result.contains("\"key\""), "should extract the JSON object");
+        assert!(result.starts_with('{'), "should start with opening brace");
     }
 
     #[test]
@@ -1136,5 +1244,181 @@ Let me know if you need anything else!"#;
 
         let result = parse_response(json, AnalysisMode::Improve, "Hello wrold");
         assert!(result.alternatives.is_none(), "alternatives should be None for Improve mode");
+    }
+
+    // =========================================================================
+    // BUG REPRODUCTION: Combined mode (levels) parsing
+    // =========================================================================
+
+    fn make_valid_combined_json() -> String {
+        serde_json::json!({
+            "tldr": "Bun is a fast JS runtime",
+            "levels": {
+                "eli5": "Bun is like a toy box",
+                "eli15": "Bun is a fast alternative to Node.js",
+                "professional": "Bun is built on JavaScriptCore engine",
+                "samples": "### Basic\n```js\nBun.serve({ fetch(req) { return new Response('Hi'); } });\n```",
+                "resources": "- Learn [[Node.js]] first\n- Understand [[TypeScript]]",
+                "alternatives": "Consider [[Node.js]] or [[Deno]] instead."
+            },
+            "resources": [{"title": "Bun Docs", "url": "https://bun.sh/docs"}],
+            "alternatives": [{"name": "Node.js", "description": "Classic runtime", "pros": ["Mature ecosystem"], "cons": ["Slower"]}]
+        }).to_string()
+    }
+
+
+
+    #[test]
+    fn combined_mode_valid_json_extracts_all_levels() {
+        let json = make_valid_combined_json();
+        let result = parse_response(&json, AnalysisMode::TechExplain, "bun");
+
+        // All 6 levels should be present
+        let levels = result.levels.as_ref().expect("levels should be Some");
+        assert_eq!(levels.len(), 6, "should have all 6 levels");
+        assert!(levels.contains_key("eli5"));
+        assert!(levels.contains_key("eli15"));
+        assert!(levels.contains_key("professional"));
+        assert!(levels.contains_key("samples"));
+        assert!(levels.contains_key("resources"));
+        assert!(levels.contains_key("alternatives"));
+
+        // Level content should be clean text, not contain JSON syntax
+        let eli15 = &levels["eli15"];
+        assert!(eli15.contains("Node.js"), "eli15 should contain explanation text");
+        assert!(!eli15.contains("\"resources\""), "eli15 must NOT contain raw JSON keys");
+
+        // Root-level resources and alternatives should be parsed separately
+        assert_eq!(result.resources.as_ref().unwrap().len(), 1);
+        assert_eq!(result.alternatives.as_ref().unwrap().len(), 1);
+        assert_eq!(result.tldr.as_deref(), Some("Bun is a fast JS runtime"));
+    }
+
+    #[test]
+    fn combined_mode_fallback_must_not_leak_raw_json_as_level_content() {
+        // BUG SCENARIO: When JSON parsing completely fails, the fallback puts
+        // entire raw JSON into explanation field. Frontend then creates
+        // { eli15: raw_json_text } — user sees raw JSON in UI.
+        //
+        // Build malformed JSON at runtime: eli15 has a missing closing quote
+        // and a literal newline, which breaks all parsing layers.
+        let malformed = format!(
+            "{}\n{{\n{}\n{}\n{}\n{}\n{}\n}}",
+            "Here is the explanation:",
+            "  \"tldr\": \"Fast runtime\",",
+            "  \"levels\": {",
+            "    \"eli5\": \"Simple box analogy\",",
+            // eli15 value is broken: has literal newline + missing closing quote
+            "    \"eli15\": \"Bun is a fast runtime\n  },",
+            "  \"resources\": [{\"title\": \"Docs\", \"url\": \"https://bun.sh\"}]",
+        );
+
+        let result = parse_response(&malformed, AnalysisMode::TechExplain, "bun");
+
+        // Even in fallback, explanation should not contain raw JSON array syntax
+        if let Some(ref explanation) = result.explanation {
+            assert!(
+                !explanation.contains("\"resources\": ["),
+                "Fallback explanation must not contain raw JSON array syntax"
+            );
+        }
+    }
+
+    #[test]
+    fn combined_mode_with_code_in_samples_level() {
+        // AI returns samples with code blocks containing braces
+        let json = serde_json::json!({
+            "tldr": "HTTP server",
+            "levels": {
+                "eli5": "Simple explanation",
+                "eli15": "Mid-level explanation",
+                "professional": "Detailed technical explanation",
+                "samples": "### Basic\n```js\nBun.serve({ fetch(req) { return new Response(\"Hello\"); } });\n```\nThis starts an HTTP server.",
+                "resources": "- Learn [[Node.js]]",
+                "alternatives": "[[Deno]] is an alternative"
+            },
+            "resources": [{"title": "Bun Docs", "url": "https://bun.sh/docs"}],
+            "alternatives": [{"name": "Deno", "description": "Alt runtime", "pros": ["Secure"], "cons": ["Smaller ecosystem"]}]
+        }).to_string();
+
+        let result = parse_response(&json, AnalysisMode::TechExplain, "bun");
+        let levels = result.levels.as_ref().expect("levels should exist");
+
+        // samples should contain the code block intact
+        let samples = &levels["samples"];
+        assert!(samples.contains("Bun.serve"), "samples should contain the code");
+        assert!(samples.contains("Response"), "samples should preserve code content");
+
+        // Other levels should not be contaminated
+        let eli15 = &levels["eli15"];
+        assert_eq!(eli15, "Mid-level explanation");
+        assert!(!eli15.contains("resources"), "eli15 must not contain other level data");
+    }
+
+    #[test]
+    fn combined_mode_ai_returns_levels_with_literal_newlines() {
+        // AI returns JSON with literal newlines inside level string values
+        // (common with Gemini models). sanitize_json should handle this.
+        // Start with valid JSON, then inject literal newlines inside string values
+        let valid = serde_json::json!({
+            "tldr": "Summary",
+            "levels": {
+                "eli5": "First line SPLIT Second line",
+                "eli15": "Explanation SPLIT Continued"
+            }
+        }).to_string();
+        // Replace SPLIT with actual newline characters (simulating AI output with literal newlines)
+        let json = valid.replace("SPLIT", "\n");
+
+        let result = parse_response(&json, AnalysisMode::TechExplain, "test");
+        let levels = result.levels.as_ref().expect("levels should be parsed");
+        assert!(levels.contains_key("eli5"), "eli5 should be present");
+        assert!(levels.contains_key("eli15"), "eli15 should be present");
+
+        let eli5 = &levels["eli5"];
+        assert!(eli5.contains("First"), "should contain first line");
+        assert!(eli5.contains("Second"), "should contain second line");
+    }
+
+    #[test]
+    fn combined_mode_resources_name_collision_handled() {
+        // AI returns "resources" both as a level string AND as a root-level array.
+        // Parser must keep them separate: level string in levels, array in resources field.
+        let json = serde_json::json!({
+            "tldr": "Test term",
+            "levels": {
+                "eli5": "Simple",
+                "eli15": "Medium",
+                "professional": "Detailed",
+                "samples": "```js\nconsole.log('hi');\n```",
+                "resources": "- Learn [[Node.js]] first\n- Understand [[V8]] engine",
+                "alternatives": "Use [[Deno]] instead"
+            },
+            "resources": [
+                {"title": "Official Docs", "url": "https://example.com"}
+            ],
+            "alternatives": [
+                {"name": "Alt", "description": "Desc", "pros": ["Pro1"], "cons": ["Con1"]}
+            ]
+        }).to_string();
+
+        let result = parse_response(&json, AnalysisMode::TechExplain, "test");
+        let levels = result.levels.as_ref().expect("levels should exist");
+
+        // The "resources" level should be the string content
+        let res_level = &levels["resources"];
+        assert!(res_level.contains("Node.js"), "resources level should be the learning roadmap string");
+        assert!(!res_level.contains("https://"), "resources level should NOT contain URL from the array");
+
+        // The root-level resources should be the array
+        let resources = result.resources.as_ref().expect("root resources should exist");
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0].title, "Official Docs");
+
+        // Same for alternatives
+        let alt_level = &levels["alternatives"];
+        assert!(alt_level.contains("Deno"), "alternatives level should be context text");
+        let alts = result.alternatives.as_ref().expect("root alternatives should exist");
+        assert_eq!(alts.len(), 1);
     }
 }

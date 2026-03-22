@@ -1,4 +1,5 @@
 import type { Alternative } from '../lib/types';
+import { openUrl } from '../lib/openUrl';
 
 interface AlternativesViewProps {
   alternatives: Alternative[];
@@ -18,14 +19,12 @@ export default function AlternativesView({ alternatives, onTermClick }: Alternat
           {/* Name with optional link */}
           <h4 className="text-sm font-semibold mb-1">
             {alt.url ? (
-              <a
-                href={alt.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300 underline"
+              <button
+                onClick={() => openUrl(alt.url!)}
+                className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
               >
                 {alt.name}
-              </a>
+              </button>
             ) : (
               <button
                 onClick={() => onTermClick(alt.name)}
