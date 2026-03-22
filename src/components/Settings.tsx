@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback } from 'react';
 import type { AppSettings, AnalysisMode, ExplanationLevel, ToneStyle } from '../lib/types';
 
 type AiProvider = 'gemini' | 'claude';
-type ModelEntry = [string, string]; // [id, displayName]
 
 export default function Settings() {
   // Form state
@@ -24,43 +23,11 @@ export default function Settings() {
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [hasClaudeKey, setHasClaudeKey] = useState(false);
 
-  // Model list state
-  const [geminiModels, setGeminiModels] = useState<ModelEntry[]>([]);
-  const [claudeModels, setClaudeModels] = useState<ModelEntry[]>([]);
-  const [loadingGeminiModels, setLoadingGeminiModels] = useState(false);
-  const [loadingClaudeModels, setLoadingClaudeModels] = useState(false);
-
   // Feedback state
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [keyStatus, setKeyStatus] = useState<Record<string, string>>({});
 
   // Fetch models from API
-  const fetchGeminiModels = useCallback(async () => {
-    setLoadingGeminiModels(true);
-    try {
-      const models = await invoke<ModelEntry[]>('list_gemini_models');
-      setGeminiModels(models);
-    } catch (err) {
-      console.error('Failed to fetch Gemini models:', err);
-      setGeminiModels([]);
-      showKeyFeedback('gemini', `Failed to load models: ${err}`);
-    }
-    setLoadingGeminiModels(false);
-  }, []);
-
-  const fetchClaudeModels = useCallback(async () => {
-    setLoadingClaudeModels(true);
-    try {
-      const models = await invoke<ModelEntry[]>('list_claude_models');
-      setClaudeModels(models);
-    } catch (err) {
-      console.error('Failed to fetch Claude models:', err);
-      setClaudeModels([]);
-      showKeyFeedback('claude', `Failed to load models: ${err}`);
-    }
-    setLoadingClaudeModels(false);
-  }, []);
-
   // Load settings and API key status on mount
   useEffect(() => {
     invoke<AppSettings>('get_settings').then((settings) => {
@@ -77,14 +44,12 @@ export default function Settings() {
 
     invoke<string | null>('get_gemini_key').then((key) => {
       setHasGeminiKey(!!key);
-      if (key) fetchGeminiModels();
     }).catch((err) => console.error('Failed to check Gemini key:', err));
 
     invoke<string | null>('get_claude_key').then((key) => {
       setHasClaudeKey(!!key);
-      if (key) fetchClaudeModels();
     }).catch((err) => console.error('Failed to check Claude key:', err));
-  }, [fetchGeminiModels, fetchClaudeModels]);
+  }, []);
 
   // Save settings to AppState
   const handleSave = useCallback(async () => {
@@ -123,7 +88,6 @@ export default function Settings() {
       setHasGeminiKey(true);
       setGeminiKeyInput('');
       showKeyFeedback('gemini', 'Saved');
-      fetchGeminiModels();
     } catch (err) {
       showKeyFeedback('gemini', `Failed to save: ${err}`);
     }
@@ -133,7 +97,6 @@ export default function Settings() {
     try {
       await invoke('delete_gemini_key');
       setHasGeminiKey(false);
-      setGeminiModels([]);
       showKeyFeedback('gemini', 'Deleted');
     } catch (err) {
       showKeyFeedback('gemini', `Failed to delete: ${err}`);
@@ -147,7 +110,6 @@ export default function Settings() {
       setHasClaudeKey(true);
       setClaudeKeyInput('');
       showKeyFeedback('claude', 'Saved');
-      fetchClaudeModels();
     } catch (err) {
       showKeyFeedback('claude', `Failed to save: ${err}`);
     }
@@ -157,7 +119,6 @@ export default function Settings() {
     try {
       await invoke('delete_claude_key');
       setHasClaudeKey(false);
-      setClaudeModels([]);
       showKeyFeedback('claude', 'Deleted');
     } catch (err) {
       showKeyFeedback('claude', `Failed to delete: ${err}`);
@@ -244,32 +205,13 @@ export default function Settings() {
             {/* Gemini Model */}
             <div>
               <label className={labelClass}>Gemini Model</label>
-              {geminiModels.length > 0 ? (
-                <select
-                  value={geminiModel}
-                  onChange={(e) => setGeminiModel(e.target.value)}
-                  className={selectClass}
-                >
-                  {!geminiModels.some(([id]) => id === geminiModel) && (
-                    <option value={geminiModel}>{geminiModel}</option>
-                  )}
-                  {geminiModels.map(([id, name]) => (
-                    <option key={id} value={id}>{name} ({id})</option>
-                  ))}
-                </select>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={geminiModel}
-                    onChange={(e) => setGeminiModel(e.target.value)}
-                    className={inputClass}
-                  />
-                  {loadingGeminiModels && (
-                    <span className="text-xs text-gray-400 whitespace-nowrap">Loading...</span>
-                  )}
-                </div>
-              )}
+              <input
+                type="text"
+                value={geminiModel}
+                onChange={(e) => setGeminiModel(e.target.value)}
+                placeholder="e.g. gemini-2.5-flash, gemini-3.1-flash-lite-preview"
+                className={inputClass}
+              />
             </div>
 
             {/* Claude API Key */}
@@ -310,32 +252,13 @@ export default function Settings() {
             {/* Claude Model */}
             <div>
               <label className={labelClass}>Claude Model</label>
-              {claudeModels.length > 0 ? (
-                <select
-                  value={claudeModel}
-                  onChange={(e) => setClaudeModel(e.target.value)}
-                  className={selectClass}
-                >
-                  {!claudeModels.some(([id]) => id === claudeModel) && (
-                    <option value={claudeModel}>{claudeModel}</option>
-                  )}
-                  {claudeModels.map(([id, name]) => (
-                    <option key={id} value={id}>{name} ({id})</option>
-                  ))}
-                </select>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={claudeModel}
-                    onChange={(e) => setClaudeModel(e.target.value)}
-                    className={inputClass}
-                  />
-                  {loadingClaudeModels && (
-                    <span className="text-xs text-gray-400 whitespace-nowrap">Loading...</span>
-                  )}
-                </div>
-              )}
+              <input
+                type="text"
+                value={claudeModel}
+                onChange={(e) => setClaudeModel(e.target.value)}
+                placeholder="e.g. claude-sonnet-4-20250514"
+                className={inputClass}
+              />
             </div>
           </div>
         </section>
