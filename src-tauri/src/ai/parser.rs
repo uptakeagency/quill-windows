@@ -47,7 +47,10 @@ struct AIResponse {
 /// 5. Regex extraction of the "explanation" field
 /// 6. Final fallback: raw text as explanation or corrected text
 pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> AnalysisResult {
-    let cleaned = extract_json(raw);
+    // Sanitize BEFORE extracting JSON — literal newlines inside JSON strings
+    // break the brace matcher's in_string tracking
+    let sanitized_raw = sanitize_json(raw);
+    let cleaned = extract_json(&sanitized_raw);
 
     debug_log(&format!("\n=== NEW PARSE ({} chars) ===\n{}", raw.len(), raw));
     debug_log(&format!("[QUILL] Cleaned JSON ({} chars, first 200): {:?}", cleaned.len(), &cleaned[..cleaned.len().min(200)]));
@@ -60,20 +63,12 @@ pub fn parse_response(raw: &str, mode: AnalysisMode, original_text: &str) -> Ana
         debug_log(&format!("[QUILL] Layer 2 levels keys: {:?}", r.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
     }
 
-    // Layer 3 & 4: Sanitize and retry
+    // Layer 3 & 4: Lenient parsing
     if result.is_none() {
-        let sanitized = sanitize_json(&cleaned);
-        if sanitized != cleaned {
-            result = try_decode(&sanitized, mode, original_text);
-            debug_log(&format!("[QUILL] Layer 3 (sanitized serde): {}", if result.is_some() { "OK" } else { "FAIL" }));
-        }
-        // Layer 4: Lenient Value-based parsing
-        if result.is_none() {
-            result = try_decode_lenient(&sanitized, mode, original_text);
-            debug_log(&format!("[QUILL] Layer 4 (lenient): {}", if result.is_some() { "OK" } else { "FAIL" }));
-            if let Some(ref r) = result {
-                debug_log(&format!("[QUILL] Layer 4 levels keys: {:?}", r.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
-            }
+        result = try_decode_lenient(&cleaned, mode, original_text);
+        debug_log(&format!("[QUILL] Layer 4 (lenient): {}", if result.is_some() { "OK" } else { "FAIL" }));
+        if let Some(ref r) = result {
+            debug_log(&format!("[QUILL] Layer 4 levels keys: {:?}", r.levels.as_ref().map(|l| l.keys().collect::<Vec<_>>())));
         }
     }
 
