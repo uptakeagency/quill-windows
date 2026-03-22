@@ -9,6 +9,7 @@ import MarkdownView from './MarkdownView';
 import SuggestionView from './SuggestionView';
 import VocabularyCards from './VocabularyCard';
 import AlternativesView from './AlternativesView';
+import ResourcesView from './ResourcesView';
 import type { AnalysisMode, ExplanationLevel, TechExplanation } from '../lib/types';
 
 export default function FloatingPanel() {
@@ -215,6 +216,9 @@ export default function FloatingPanel() {
                     alternatives={currentExplanation.alternatives}
                     onTermClick={handleTermClick}
                   />
+                )}
+                {currentExplanation.resources && currentExplanation.resources.length > 0 && (
+                  <ResourcesView resources={currentExplanation.resources} />
                 )}
               </>
             )}
