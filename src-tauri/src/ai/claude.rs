@@ -22,7 +22,7 @@ const TIMEOUT_SECS: u64 = 30;
 fn build_request_body(model: &str, system_prompt: &str, user_prompt: &str) -> Value {
     json!({
         "model": model,
-        "max_tokens": 2048,
+        "max_tokens": 8192,
         "system": [
             {
                 "type": "text",
@@ -189,7 +189,7 @@ mod tests {
     fn build_request_body_has_max_tokens() {
         let body = build_request_body(DEFAULT_MODEL, "sys", "user");
 
-        assert_eq!(body["max_tokens"].as_u64().unwrap(), 2048);
+        assert_eq!(body["max_tokens"].as_u64().unwrap(), 8192);
     }
 
     #[test]
